@@ -17,6 +17,7 @@ FORBIDDEN_VENDORS = {
     "typer",
     "rich",
 }
+PROJECT_PACKAGES = {"core"}
 THIRD_PARTY_EXAMPLES = sorted(FORBIDDEN_VENDORS)[:3]
 
 
@@ -69,7 +70,7 @@ def test_core_uses_no_third_party_imports() -> None:
     for path in _iter_core_modules():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for module in _imported_top_level_modules(tree):
-            if module in sys.stdlib_module_names:
+            if module in sys.stdlib_module_names or module in PROJECT_PACKAGES:
                 continue
             offenders.append(f"{path.relative_to(REPO_ROOT)} imports third-party '{module}'")
     assert not offenders, (
