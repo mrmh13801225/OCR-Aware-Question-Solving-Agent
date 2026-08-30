@@ -1,0 +1,60 @@
+[project]
+name = "datic-ocr-agent"
+version = "0.1.0"
+description = "OCR-aware multiple-choice question solving agent"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "anthropic>=0.34",
+    "typer>=0.12",
+    "rich>=13.7",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "core", "core.domain", "core.services",
+    "providers", "providers.ocr", "providers.reasoning",
+    "persistence", "api", "api.routes", "cli", "evaluation",
+]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not live'"
+asyncio_mode = "auto"
+markers = [
+    "live: tests that hit real vendor APIs (deselected by default)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "anthropic.*"
+ignore_missing_imports = true

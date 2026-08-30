@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project runtime output
+results/
+
+# Frontend
+node_modules/
