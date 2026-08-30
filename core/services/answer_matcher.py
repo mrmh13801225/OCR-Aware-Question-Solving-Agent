@@ -77,6 +77,22 @@ _CONFUSABLE_LETTERS: list[tuple[str, str]] = [
 ]
 
 
+def resolve_fuzzy_letter(raw_answer: str, options: list[Option]) -> str | None:
+    """Letter for an answer only the fuzzy tier accepts; None if truly unmappable."""
+    index = _normalized_label_index(raw_answer)
+    if index is None or not 0 <= index < len(options):
+        # Out-of-range strict mappings (G for a 4-option block) fall through to
+        # the confusable table: OCR reads C as G, not as option G.
+        normalized = normalize(raw_answer).upper()
+        index = next(
+            (_LETTER_TO_INDEX[_from] for _from, to in _CONFUSABLE_LETTERS if to == normalized),
+            None,
+        )
+    if index is None or not 0 <= index < len(options):
+        return None
+    return options[index].label
+
+
 def resolve_letter(strategy: str, raw_answer: str, options: list[Option]) -> str | None:
     """Map a raw model answer to the output letter under the chosen strategy.
 

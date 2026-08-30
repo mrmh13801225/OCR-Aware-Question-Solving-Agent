@@ -3,20 +3,25 @@
 from collections import Counter
 
 from core.domain.models import Option, SolveAttempt
-from core.services.answer_matcher import _normalized_label_index, fuzzy_matches
+from core.services.answer_matcher import (
+    _normalized_label_index,
+    fuzzy_matches,
+    resolve_fuzzy_letter,
+)
 
 
 def pick_best(attempts: list[SolveAttempt], options: list[Option]) -> str:
     """Pick the output letter for an unresolved block, in declared tier order.
 
     1. Fuzzy re-check: an answer the strict check rejected but fuzzy accepts
-       (stray mark, confusable letter) — earliest attempt wins.
+       (confusable letter) — earliest attempt wins.
     2. Majority vote: the most common answer across attempts, if one exists.
     3. First attempt: the least-mutated text is the most grounded read.
     """
     for attempt in attempts:
-        if fuzzy_matches(attempt.raw_answer, options):
-            return _letter(attempt.raw_answer, options)
+        letter = resolve_fuzzy_letter(attempt.raw_answer, options)
+        if letter is not None and fuzzy_matches(attempt.raw_answer, options):
+            return letter
 
     counts = Counter(a.raw_answer for a in attempts)
     answer, count = counts.most_common(1)[0]
