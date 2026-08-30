@@ -88,6 +88,14 @@ def test_factory_builds_the_fake_provider() -> None:
     assert isinstance(build_reasoning_provider("fake", settings), FakeReasoningProvider)
 
 
+def test_registry_keys_are_valid_provider_names() -> None:
+    from config import OCR_PROVIDER_REGISTRY, REASONING_PROVIDER_REGISTRY
+
+    assert set(OCR_PROVIDER_REGISTRY) <= set(OCR_PROVIDER_NAMES)
+    assert set(REASONING_PROVIDER_REGISTRY) <= set(REASONING_PROVIDER_NAMES)
+    assert set(ANSWER_MAPPINGS) == {"trust_model", "labels_then_position"}
+
+
 def test_factory_error_message_lists_valid_names() -> None:
     from config import OCR_PROVIDER_REGISTRY, REASONING_PROVIDER_REGISTRY
 

@@ -1,6 +1,6 @@
 """Env-driven settings and the provider factory/registry — the one wiring point."""
 
-from typing import Annotated, Literal
+from typing import Literal, get_args
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -8,12 +8,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRProvider, OCRText, ReasoningProvider
 
-ANSWER_MAPPINGS = ("trust_model", "labels_then_position")
-
 VALID_OCR = Literal["nanonets", "datalab", "local_vlm", "fake"]
 VALID_REASONING = Literal["claude", "openai_compatible", "fake"]
-OCR_PROVIDER_NAMES = ("nanonets", "datalab", "local_vlm", "fake")
-REASONING_PROVIDER_NAMES = ("claude", "openai_compatible", "fake")
+AnswerMapping = Literal["trust_model", "labels_then_position"]
+
+OCR_PROVIDER_NAMES = get_args(VALID_OCR)
+REASONING_PROVIDER_NAMES = get_args(VALID_REASONING)
+ANSWER_MAPPINGS = get_args(AnswerMapping)
 
 
 class Settings(BaseSettings):
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     openai_compat_model: str = ""
 
     retry_cap: int = Field(default=2, ge=0)
-    answer_mapping: Literal["trust_model", "labels_then_position"] = "trust_model"
+    answer_mapping: AnswerMapping = "trust_model"
     noise_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     results_dir: str = "./results"
 
@@ -79,14 +80,3 @@ def build_reasoning_provider(name: str, settings: Settings) -> ReasoningProvider
     if name not in REASONING_PROVIDER_REGISTRY:
         raise _valid_names_error("reasoning", name, tuple(REASONING_PROVIDER_REGISTRY))
     return REASONING_PROVIDER_REGISTRY[name]()
-
-
-__all__ = [
-    "ANSWER_MAPPINGS",
-    "OCR_PROVIDER_NAMES",
-    "REASONING_PROVIDER_NAMES",
-    "Settings",
-    "build_ocr_provider",
-    "build_reasoning_provider",
-    "Annotated",
-]
