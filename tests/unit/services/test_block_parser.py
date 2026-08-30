@@ -92,6 +92,13 @@ def test_no_options_raises_parse_error() -> None:
         parse("فقط یک سؤال بدون گزینه")
 
 
+def test_too_many_options_raises_parse_error_carrying_raw_text() -> None:
+    raw = "q?\n" + "\n".join(f"{i}) x{i}" for i in range(1, 10))
+    with pytest.raises(ParseError) as err:
+        parse(raw)
+    assert err.value.raw_text == raw
+
+
 def test_parser_does_not_alter_option_text() -> None:
     raw = "؟\n1) x  y\n2) z\n3) w\n4) v"
     block = parse(raw)

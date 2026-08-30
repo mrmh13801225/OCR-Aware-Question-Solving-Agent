@@ -5,41 +5,35 @@ import re
 from core.domain.errors import ParseError
 from core.domain.models import Option, ParsedBlock
 
-_PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
-_ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
-
-_PERSIAN_LETTER_LABELS = {"الف": "A", "ب": "B", "ج": "C", "د": "D", "الف)": "A"}
-
-
-def _normalize_label_digits(label: str) -> str:
-    table = str.maketrans(_PERSIAN_DIGITS + _ARABIC_DIGITS, "0123456789" * 2)
-    return label.translate(table)
-
-
 # A line is an option when it starts with a number (any digit script) or a
 # Persian ordinal letter, followed by . ) or a stray RTL paren. Anything else
 # is question text — OCR noise lines therefore degrade to the question, never
-# to phantom options.
-_OPTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"^\(?\s*(\d{1,2})\s*[)..]\s+(.+)$"),
-    re.compile(r"^\(?\s*(\d{1,2})\s*[)..]\s*(.+)$"),
-    re.compile(r"^\(\s*(\d{1,2})\s+(.+)$"),
-]
+# to phantom options. Labels are assigned positionally (first match is A,
+# second B, …): the printed label is unreliable OCR output, while vertical
+# order is stable, so the number itself is matched but never used as a label.
+_DIGIT_OPTION_PATTERN = re.compile(r"^\(?\s*\d{1,2}\s*[)..]\s*(.+)$")
+_RTL_PAREN_PATTERN = re.compile(r"^\(\s*\d{1,2}\s+(.+)$")
+_LETTER_OPTION_PATTERN = re.compile(r"^(الف|ب|ج|د)\s*[).]\s*(.+)$")
+_LETTER_TO_LABEL = {"الف": "A", "ب": "B", "ج": "C", "د": "D"}
 
-_LETTER_PATTERN = re.compile(r"^(الف|ب|ج|د)\s*[).]\s*(.+)$")
+LABELS = "ABCDEFGH"
+_MAX_OPTIONS = len(LABELS)
 
 
-def _match_option_line(line: str) -> tuple[str, str] | None:
+def _option_body(line: str) -> tuple[str, str] | None:
+    """Return (label_override_or_empty, option_text) when the line is an option."""
     stripped = line.strip()
     if not stripped:
         return None
-    for pattern in _OPTION_PATTERNS:
-        match = pattern.match(stripped)
-        if match:
-            return _normalize_label_digits(match.group(1)), match.group(2).strip()
-    letter_match = _LETTER_PATTERN.match(stripped)
+    digit_match = _DIGIT_OPTION_PATTERN.match(stripped)
+    if digit_match:
+        return "", digit_match.group(1).strip()
+    rtl_match = _RTL_PAREN_PATTERN.match(stripped)
+    if rtl_match:
+        return "", rtl_match.group(1).strip()
+    letter_match = _LETTER_OPTION_PATTERN.match(stripped)
     if letter_match:
-        return _PERSIAN_LETTER_LABELS[letter_match.group(1)], letter_match.group(2).strip()
+        return _LETTER_TO_LABEL[letter_match.group(1)], letter_match.group(2).strip()
     return None
 
 
@@ -54,22 +48,15 @@ def parse(raw_text: str) -> ParsedBlock:
     options: list[Option] = []
 
     for line in lines:
-        matched = _match_option_line(line)
+        matched = _option_body(line)
         if matched is None:
             question_lines.append(line.strip())
             continue
-        options.append(Option(label=_next_label(len(options)), text=matched[1]))
+        if len(options) >= _MAX_OPTIONS:
+            raise ParseError(f"more than {_MAX_OPTIONS} options", raw_text=raw_text)
+        options.append(Option(label=LABELS[len(options)], text=matched[1]))
 
     question_text = "\n".join(line for line in question_lines if line)
     if not question_text or len(options) < 2:
         raise ParseError("could not find a question with at least two options", raw_text=raw_text)
     return ParsedBlock(question_text=question_text, options=options, raw_text=raw_text)
-
-
-_LABELS = "ABCDEFGH"
-
-
-def _next_label(index: int) -> str:
-    if index >= len(_LABELS):
-        raise ParseError("more options than supported labels", raw_text="")
-    return _LABELS[index]
