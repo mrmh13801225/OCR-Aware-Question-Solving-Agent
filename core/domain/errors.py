@@ -1,7 +1,5 @@
 """Typed errors: every failure in the pipeline is one of these, nothing generic."""
 
-from dataclasses import dataclass
-
 
 class DaticError(Exception):
     """Base for all pipeline errors."""
@@ -19,12 +17,13 @@ class NoiseError(DaticError):
     """The noise injector produced an invalid state."""
 
 
-@dataclass(frozen=True)
 class ProviderError(DaticError):
     """A vendor call failed; adapters translate every vendor quirk into a subtype."""
 
-    message: str
-    provider: str = ""
+    def __init__(self, message: str, provider: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.provider = provider
 
     def __str__(self) -> str:
         return f"[{self.provider}] {self.message}" if self.provider else self.message

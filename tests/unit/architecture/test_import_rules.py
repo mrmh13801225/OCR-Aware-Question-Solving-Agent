@@ -27,29 +27,31 @@ def _iter_core_modules() -> list[Path]:
     return sorted(CORE_ROOT.rglob("*.py"))
 
 
-def _top_level_module(node: ast.AST) -> str | None:
+def _top_level_modules(node: ast.AST) -> set[str]:
     if isinstance(node, ast.Import):
-        for alias in node.names:
-            return alias.name.split(".")[0]
+        return {alias.name.split(".")[0] for alias in node.names}
     if isinstance(node, ast.ImportFrom):
         if node.level > 0:
-            return None  # relative import inside the package itself
-        return (node.module or "").split(".")[0]
-    return None
+            return set()  # relative import inside the package itself
+        return {(node.module or "").split(".")[0]}
+    return set()
 
 
 def _imported_top_level_modules(tree: ast.AST) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
-        module = _top_level_module(node)
-        if module is not None:
-            found.add(module)
+        found |= _top_level_modules(node)
     return found
 
 
 def test_core_tree_exists() -> None:
     assert CORE_ROOT.is_dir(), "core/ package must exist"
     assert list(_iter_core_modules()), "core/ contains no modules"
+
+
+def test_multi_alias_imports_are_all_recorded() -> None:
+    tree = ast.parse("import json, httpx\nfrom anthropic import Anthropic")
+    assert _imported_top_level_modules(tree) == {"json", "httpx", "anthropic"}
 
 
 def test_core_imports_are_resolvable_and_inward_only() -> None:

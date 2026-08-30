@@ -1,5 +1,8 @@
 """T1.2 — typed error hierarchy and port contracts."""
 
+import pickle
+from copy import deepcopy
+
 from core.domain.errors import (
     DaticError,
     NoiseError,
@@ -34,3 +37,14 @@ def test_parse_error_carries_raw_text_snippet() -> None:
     error = ParseError("no options found", raw_text="…truncated ocr text…")
     assert error.raw_text == "…truncated ocr text…"
     assert "no options found" in str(error)
+
+
+def test_provider_errors_round_trip_through_pickle_and_deepcopy() -> None:
+    for error in (
+        ProviderAuthError("bad key", provider="nanonets"),
+        ProviderTimeoutError("boom"),
+    ):
+        restored = pickle.loads(pickle.dumps(error))
+        assert isinstance(restored, type(error))
+        assert str(restored) == str(error)
+        assert deepcopy(error).message == error.message
