@@ -1,0 +1,92 @@
+"""Env-driven settings and the provider factory/registry — the one wiring point."""
+
+from typing import Annotated, Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from core.domain.models import Option, ParsedBlock, SolveAttempt
+from core.domain.ports import OCRProvider, OCRText, ReasoningProvider
+
+ANSWER_MAPPINGS = ("trust_model", "labels_then_position")
+
+VALID_OCR = Literal["nanonets", "datalab", "local_vlm", "fake"]
+VALID_REASONING = Literal["claude", "openai_compatible", "fake"]
+OCR_PROVIDER_NAMES = ("nanonets", "datalab", "local_vlm", "fake")
+REASONING_PROVIDER_NAMES = ("claude", "openai_compatible", "fake")
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    ocr_provider: VALID_OCR = "nanonets"
+    reasoning_provider: VALID_REASONING = "claude"
+
+    nanonets_api_key: str = ""
+    datalab_api_key: str = ""
+    local_vlm_base_url: str = "http://localhost:8000/v1"
+    local_vlm_model: str = "qwen2.5-vl-7b-instruct"
+
+    anthropic_api_key: str = ""
+    openai_compat_base_url: str = ""
+    openai_compat_api_key: str = ""
+    openai_compat_model: str = ""
+
+    retry_cap: int = Field(default=2, ge=0)
+    answer_mapping: Literal["trust_model", "labels_then_position"] = "trust_model"
+    noise_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+    results_dir: str = "./results"
+
+
+class FakeOCRProvider:
+    """Deterministic no-network stand-in; registered under the 'fake' name."""
+
+    def extract_text(self, image: bytes) -> OCRText:
+        return OCRText(text="1) گزینه یک\n2) گزینه دو\n3) گزینه سه\n4) گزینه چهار", provider="fake")
+
+
+class FakeReasoningProvider:
+    """Always answers with the first option's label, deterministically."""
+
+    def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
+        answer = options[0].label if options else "A"
+        return SolveAttempt(raw_answer=answer, question_text_used=question_text, attempt_index=0)
+
+    def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
+        return block
+
+
+OCR_PROVIDER_REGISTRY: dict[str, type[OCRProvider]] = {
+    "fake": FakeOCRProvider,
+}
+
+REASONING_PROVIDER_REGISTRY: dict[str, type[ReasoningProvider]] = {
+    "fake": FakeReasoningProvider,
+}
+
+
+def _valid_names_error(kind: str, name: str, valid: tuple[str, ...]) -> ValueError:
+    return ValueError(f"Unknown {kind} provider '{name}'. Valid options: {', '.join(valid)}.")
+
+
+def build_ocr_provider(name: str, settings: Settings) -> OCRProvider:
+    if name not in OCR_PROVIDER_REGISTRY:
+        raise _valid_names_error("OCR", name, tuple(OCR_PROVIDER_REGISTRY))
+    return OCR_PROVIDER_REGISTRY[name]()
+
+
+def build_reasoning_provider(name: str, settings: Settings) -> ReasoningProvider:
+    if name not in REASONING_PROVIDER_REGISTRY:
+        raise _valid_names_error("reasoning", name, tuple(REASONING_PROVIDER_REGISTRY))
+    return REASONING_PROVIDER_REGISTRY[name]()
+
+
+__all__ = [
+    "ANSWER_MAPPINGS",
+    "OCR_PROVIDER_NAMES",
+    "REASONING_PROVIDER_NAMES",
+    "Settings",
+    "build_ocr_provider",
+    "build_reasoning_provider",
+    "Annotated",
+]
