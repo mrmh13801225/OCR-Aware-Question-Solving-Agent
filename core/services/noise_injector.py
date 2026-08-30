@@ -5,6 +5,7 @@ from dataclasses import replace
 
 from core.domain.errors import NoiseError
 from core.domain.models import Option, ParsedBlock
+from core.services.block_parser import serialize
 
 # Persian/Arabic scripts abound in visually confusable pairs; OCR engines
 # swap exactly these. Each rule maps a character to a tuple of look-alikes.
@@ -114,11 +115,7 @@ class NoiseInjector:
         options = [
             Option(label=o.label, text=corrupted[i + 1]) for i, o in enumerate(block.options)
         ]
-        raw_text = "\n".join(
-            [question_text, *[f"{i + 1}) {o.text}" for i, o in enumerate(options)]]
+        corrupted_block = replace(
+            block, question_text=question_text, options=options, raw_text=block.raw_text
         )
-        return replace(block, question_text=question_text, options=options, raw_text=raw_text)
-
-
-def default_injector(rate: float, seed: int) -> NoiseInjector:
-    return NoiseInjector(rate=rate, seed=seed)
+        return replace(corrupted_block, raw_text=serialize(corrupted_block))

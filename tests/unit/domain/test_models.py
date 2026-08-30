@@ -43,11 +43,12 @@ def test_block_result_defaults_attempts_one() -> None:
 
 
 def test_domain_models_are_frozen() -> None:
-    for instance in (
-        Option("A", "x"),
-        ParsedBlock("q", [Option("A", "x")], "raw"),
-        SolveAttempt("A", "q", 0),
-        BlockResult("A", "q", False, "o"),
-    ):
+    cases = [
+        (Option("A", "x"), "text"),
+        (ParsedBlock("q", [Option("A", "x")], "raw"), "question_text"),
+        (SolveAttempt("A", "q", 0), "raw_answer"),
+        (BlockResult("A", "q", False, "o"), "answer"),
+    ]
+    for instance, field_name in cases:
         with pytest.raises(dataclasses.FrozenInstanceError):
-            instance.answer = "B"  # type: ignore[misc]
+            setattr(instance, field_name, "mutated")

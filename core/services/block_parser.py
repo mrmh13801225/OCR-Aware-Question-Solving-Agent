@@ -60,3 +60,14 @@ def parse(raw_text: str) -> ParsedBlock:
     if not question_text or len(options) < 2:
         raise ParseError("could not find a question with at least two options", raw_text=raw_text)
     return ParsedBlock(question_text=question_text, options=options, raw_text=raw_text)
+
+
+def serialize(block: ParsedBlock) -> str:
+    """Inverse of parse(): the canonical text form, with digit option labels.
+
+    `Option.label` (A/B/C/D) is the loop's internal vocabulary; `raw_text` is
+    a faithful rendition of the block as text, so options serialize as
+    1) 2) 3) 4) — the digit style parse() accepts for every script.
+    """
+    option_lines = [f"{i}) {o.text}" for i, o in enumerate(block.options, start=1)]
+    return "\n".join([block.question_text, *option_lines])

@@ -3,8 +3,8 @@
 import pytest
 
 from core.domain.errors import ParseError
-from core.domain.models import Option
-from core.services.block_parser import parse
+from core.domain.models import Option, ParsedBlock
+from core.services.block_parser import parse, serialize
 
 LATIN = "Which option is correct?\n1) alpha\n2) beta\n3) gamma\n4) delta"
 PERSIAN_DIGITS = "در تصویر مقابل کدام است؟\n۱) الف\n۲) ب\n۳) ج\n۴) د"
@@ -14,12 +14,12 @@ PERSIAN_LETTERS = "نتیجه کدام است؟\nالف) یکی\nب) دو\nج) �
 RTL_PAREN = "پرسش این است؟\n(۱ یکی\n(۲ دو\n(۳ سه\n(۴ چهار"
 
 
-def _labels(block: object) -> list[str]:
-    return [o.label for o in block.options]  # type: ignore[attr-defined]
+def _labels(block: ParsedBlock) -> list[str]:
+    return [o.label for o in block.options]
 
 
-def _texts(block: object) -> list[str]:
-    return [o.text for o in block.options]  # type: ignore[attr-defined]
+def _texts(block: ParsedBlock) -> list[str]:
+    return [o.text for o in block.options]
 
 
 def test_parses_question_and_four_options() -> None:
@@ -64,6 +64,21 @@ def test_parses_rtl_parenthesis_variants() -> None:
 def test_labels_normalized_to_abcd_positionally() -> None:
     block = parse(PERSIAN_DIGITS)
     assert _labels(block) == ["A", "B", "C", "D"]
+
+
+def test_serialize_round_trips_through_parse() -> None:
+    for raw in (LATIN, PERSIAN_DIGITS, PERSIAN_LETTERS, RTL_PAREN):
+        block = parse(raw)
+        rendered = parse(serialize(block))
+        assert rendered.question_text == block.question_text
+        assert [o.text for o in rendered.options] == [o.text for o in block.options]
+        assert [o.label for o in rendered.options] == [o.label for o in block.options]
+
+
+def test_serialize_uses_digit_labels_not_internal_abcd() -> None:
+    block = parse(PERSIAN_DIGITS)
+    text = serialize(block)
+    assert "1)" in text and "A)" not in text
 
 
 def test_non_option_lines_join_question_text() -> None:
