@@ -57,11 +57,11 @@ class RetryLoop:
         answer = resolve_letter(self.answer_mapping, attempt.raw_answer, block.options)
         if answer is None:
             raise ValueError(f"matched answer {attempt.raw_answer!r} resolved to no letter")
-        self._emit("DONE", attempt.attempt_index, answer)
+        self._emit("DONE", count - 1, answer)
         return BlockResult(
             answer=answer,
             question_text=block.question_text,
-            changed=attempt.attempt_index > 0,
+            changed=count > 1,
             original_ocr_text=original_ocr_text,
             unresolved=False,
             attempts=count,

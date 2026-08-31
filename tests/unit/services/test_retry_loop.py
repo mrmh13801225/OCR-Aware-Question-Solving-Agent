@@ -190,3 +190,30 @@ def test_retry_cap_from_config_not_hardcoded() -> None:
     ocr2, reasoning2 = FakeOCR(), ScriptedReasoning(answers=["Z", "Z", "Z", "C"])
     loop2, _ = _loop(ocr2, reasoning2, cap=3)
     assert loop2.solve_block(IMG).attempts == 4
+
+
+class IndexObliviousReasoning(ScriptedReasoning):
+    """Mimics real adapters: always reports attempt_index=0 regardless of call count."""
+
+    def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
+        attempt = super().solve(image, question_text, options)
+        return SolveAttempt(
+            raw_answer=attempt.raw_answer, question_text_used=question_text, attempt_index=0
+        )
+
+
+def test_changed_flag_does_not_depend_on_adapter_reported_index() -> None:
+    ocr, reasoning = FakeOCR(), IndexObliviousReasoning(answers=["Z", "C"])
+    loop, _ = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.attempts == 2
+    assert result.changed is True
+
+
+def test_done_event_carries_the_final_attempt_index() -> None:
+    ocr, reasoning = FakeOCR(), IndexObliviousReasoning(answers=["Z", "C"])
+    loop, listener = _loop(ocr, reasoning)
+    loop.solve_block(IMG)
+    done_events = [e for e in listener.events if e.run_state == "DONE"]
+    assert len(done_events) == 1
+    assert done_events[0].attempt_index == 1
