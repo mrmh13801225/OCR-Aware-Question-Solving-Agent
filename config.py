@@ -47,7 +47,10 @@ class FakeOCRProvider:
     """Deterministic no-network stand-in; registered under the 'fake' name."""
 
     def extract_text(self, image: bytes) -> OCRText:
-        return OCRText(text="1) گزینه یک\n2) گزینه دو\n3) گزینه سه\n4) گزینه چهار", provider="fake")
+        return OCRText(
+            text="کدام گزینه درست است؟\n1) گزینه یک\n2) گزینه دو\n3) گزینه سه\n4) گزینه چهار",
+            provider="fake",
+        )
 
 
 class FakeReasoningProvider:
