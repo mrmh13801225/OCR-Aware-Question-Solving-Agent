@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.domain.models import AnswerMapping, Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRProvider, OCRText, ReasoningProvider
+from providers.reasoning.claude import ClaudeReasoningProvider
 
 VALID_OCR = Literal["nanonets", "datalab", "local_vlm", "fake"]
 VALID_REASONING = Literal["claude", "openai_compatible", "fake"]
@@ -61,6 +62,7 @@ OCR_PROVIDER_REGISTRY: dict[str, type[OCRProvider]] = {
 }
 
 REASONING_PROVIDER_REGISTRY: dict[str, type[ReasoningProvider]] = {
+    "claude": ClaudeReasoningProvider,
     "fake": FakeReasoningProvider,
 }
 
@@ -78,4 +80,6 @@ def build_ocr_provider(name: str, settings: Settings) -> OCRProvider:
 def build_reasoning_provider(name: str, settings: Settings) -> ReasoningProvider:
     if name not in REASONING_PROVIDER_REGISTRY:
         raise _valid_names_error("reasoning", name, tuple(REASONING_PROVIDER_REGISTRY))
+    if name == "claude":
+        return ClaudeReasoningProvider(api_key=settings.anthropic_api_key)
     return REASONING_PROVIDER_REGISTRY[name]()
