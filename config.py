@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from core.domain.models import AnswerMapping, Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRProvider, OCRText, ReasoningProvider
 from providers.ocr.datalab import DatalabOCRProvider
+from providers.ocr.local_vlm import LocalVLMOCRProvider
 from providers.ocr.nanonets import NanonetsOCRProvider
 from providers.reasoning.claude import ClaudeReasoningProvider
 from providers.reasoning.openai_compatible import OpenAICompatibleReasoningProvider
@@ -63,6 +64,7 @@ class FakeReasoningProvider:
 OCR_PROVIDER_REGISTRY: dict[str, type[OCRProvider]] = {
     "datalab": DatalabOCRProvider,
     "fake": FakeOCRProvider,
+    "local_vlm": LocalVLMOCRProvider,
     "nanonets": NanonetsOCRProvider,
 }
 
@@ -84,6 +86,10 @@ def build_ocr_provider(name: str, settings: Settings) -> OCRProvider:
         return NanonetsOCRProvider(api_key=settings.nanonets_api_key)
     if name == "datalab":
         return DatalabOCRProvider(api_key=settings.datalab_api_key)
+    if name == "local_vlm":
+        return LocalVLMOCRProvider(
+            base_url=settings.local_vlm_base_url, model=settings.local_vlm_model
+        )
     return OCR_PROVIDER_REGISTRY[name]()
 
 

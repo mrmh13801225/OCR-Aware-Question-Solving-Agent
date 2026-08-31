@@ -1,7 +1,7 @@
 """Outbound ports: the seams core talks through; adapters plug in from the outside."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from core.domain.models import BlockResult, Option, ParsedBlock, RunState, SolveAttempt
 
@@ -14,12 +14,14 @@ class OCRText:
     provider: str
 
 
+@runtime_checkable
 class OCRProvider(Protocol):
     """Step zero: turn image bytes into raw text."""
 
     def extract_text(self, image: bytes) -> OCRText: ...
 
 
+@runtime_checkable
 class ReasoningProvider(Protocol):
     """Vision-capable solver; correct() re-reads the image, per the brief."""
 

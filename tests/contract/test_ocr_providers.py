@@ -32,6 +32,7 @@ def _fixture_text(adapter: str) -> str:
 
 def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
     from providers.ocr.datalab import DatalabOCRProvider
+    from providers.ocr.local_vlm import LocalVLMOCRProvider
     from providers.ocr.nanonets import NanonetsOCRProvider
 
     transport = httpx.Client(transport=httpx.MockTransport(handler))
@@ -40,6 +41,10 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
     if adapter == "datalab":
         return DatalabOCRProvider(
             api_key="test-key", http_client=transport, clock=lambda: 0.0, sleep=lambda _s: None
+        )
+    if adapter == "local_vlm":
+        return LocalVLMOCRProvider(
+            base_url="http://test.local/v1", model="test-vlm", http_client=transport
         )
 
     from config import build_ocr_provider

@@ -1,0 +1,14 @@
+{
+  "id": "chatcmpl-vlm-1",
+  "object": "chat.completion",
+  "created": 0,
+  "model": "qwen2.5-vl-7b-instruct",
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "کدام گزینه درست است؟\n۱) تهران\n۲) مشهد\n۳) اصفهان\n۴) تبریز" },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_tokens": 500, "completion_tokens": 40, "total_tokens": 540 }
+}
