@@ -4,8 +4,7 @@ from collections import Counter
 
 from core.domain.models import Option, SolveAttempt
 from core.services.answer_matcher import (
-    _normalized_label_index,
-    fuzzy_matches,
+    normalized_label_index,
     resolve_fuzzy_letter,
 )
 
@@ -20,7 +19,7 @@ def pick_best(attempts: list[SolveAttempt], options: list[Option]) -> str:
     """
     for attempt in attempts:
         letter = resolve_fuzzy_letter(attempt.raw_answer, options)
-        if letter is not None and fuzzy_matches(attempt.raw_answer, options):
+        if letter is not None:
             return letter
 
     counts = Counter(a.raw_answer for a in attempts)
@@ -32,7 +31,7 @@ def pick_best(attempts: list[SolveAttempt], options: list[Option]) -> str:
 
 
 def _letter(raw_answer: str, options: list[Option]) -> str:
-    index = _normalized_label_index(raw_answer)
+    index = normalized_label_index(raw_answer)
     if index is not None and 0 <= index < len(options):
         return options[index].label
     return options[0].label

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRText, RunEvent
+from core.services.noise_injector import NoiseInjector
 from core.services.retry_loop import RetryLoop
 
 OPTIONS = [
@@ -152,8 +153,6 @@ def test_ocr_runs_exactly_once() -> None:
 
 
 def test_noise_applied_after_parse_when_requested() -> None:
-    from core.services.noise_injector import NoiseInjector
-
     ocr = FakeOCR()
     injector = NoiseInjector(rate=0.5, seed=3)
     listener = RecordingListener()

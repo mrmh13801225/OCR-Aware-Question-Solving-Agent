@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from core.domain.models import BlockResult, Option, ParsedBlock, SolveAttempt
+from core.domain.models import BlockResult, Option, ParsedBlock, RunState, SolveAttempt
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class ResultRepository(Protocol):
 class RunEvent:
     """One progress event emitted per state transition of the retry loop."""
 
-    run_state: str
+    run_state: RunState
     attempt_index: int
     detail: str
 

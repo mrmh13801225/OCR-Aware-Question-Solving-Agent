@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass
 
-from core.domain.errors import ParseError
-from core.domain.models import BlockResult, ParsedBlock, SolveAttempt
+from core.domain.models import AnswerMapping, BlockResult, ParsedBlock, RunState, SolveAttempt
 from core.domain.ports import OCRProvider, ReasoningProvider, RunEvent, RunEventListener
 from core.services.answer_matcher import matches, resolve_letter
 from core.services.best_guess import pick_best
@@ -26,7 +25,7 @@ class RetryLoop:
     listener: RunEventListener
     retry_cap: int = 2
     injector: NoiseInjector | None = None
-    answer_mapping: str = "trust_model"
+    answer_mapping: AnswerMapping = "trust_model"
 
     def solve_block(self, image: bytes) -> BlockResult:
         extracted = self.ocr.extract_text(image)
@@ -56,8 +55,8 @@ class RetryLoop:
         self, attempt: SolveAttempt, block: ParsedBlock, count: int, original_ocr_text: str
     ) -> BlockResult:
         answer = resolve_letter(self.answer_mapping, attempt.raw_answer, block.options)
-        if answer is None:  # mapped but not to this block's options; treat as unresolved
-            return self._unresolved([attempt], block, original_ocr_text)
+        if answer is None:
+            raise ValueError(f"matched answer {attempt.raw_answer!r} resolved to no letter")
         self._emit("DONE", attempt.attempt_index, answer)
         return BlockResult(
             answer=answer,
@@ -82,9 +81,6 @@ class RetryLoop:
             attempts=len(attempts),
         )
 
-    def _emit(self, state: str, attempt_index: int, detail: str) -> None:
+    def _emit(self, state: RunState, attempt_index: int, detail: str) -> None:
         event = RunEvent(run_state=state, attempt_index=attempt_index, detail=detail)
         self.listener.on_event(event)
-
-
-__all__ = ["RetryLoop", "ParseError"]

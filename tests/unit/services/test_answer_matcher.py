@@ -1,5 +1,7 @@
 """T2.1 — answer matcher: normalization, option matching, and letter strategies."""
 
+import pytest
+
 from core.domain.models import Option
 from core.services.answer_matcher import fuzzy_matches, matches, resolve_letter
 
@@ -61,3 +63,10 @@ def test_resolve_letter_labels_then_position_falls_back_to_position() -> None:
 def test_resolve_letter_unmappable_returns_none() -> None:
     assert resolve_letter("trust_model", "wat", OPTIONS) is None
     assert resolve_letter("labels_then_position", "wat", OPTIONS) is None
+
+
+def test_resolve_letter_rejects_unknown_strategy() -> None:
+    with pytest.raises(ValueError) as err:
+        resolve_letter("wat", "C", OPTIONS)  # type: ignore[arg-type]
+    assert "trust_model" in str(err.value)
+    assert "labels_then_position" in str(err.value)

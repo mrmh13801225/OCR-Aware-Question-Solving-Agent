@@ -5,12 +5,11 @@ from typing import Literal, get_args
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.domain.models import Option, ParsedBlock, SolveAttempt
+from core.domain.models import AnswerMapping, Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRProvider, OCRText, ReasoningProvider
 
 VALID_OCR = Literal["nanonets", "datalab", "local_vlm", "fake"]
 VALID_REASONING = Literal["claude", "openai_compatible", "fake"]
-AnswerMapping = Literal["trust_model", "labels_then_position"]
 
 OCR_PROVIDER_NAMES = get_args(VALID_OCR)
 REASONING_PROVIDER_NAMES = get_args(VALID_REASONING)

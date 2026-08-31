@@ -1,6 +1,10 @@
 """Domain models for the OCR-aware question solving loop."""
 
 from dataclasses import dataclass
+from typing import Literal
+
+AnswerMapping = Literal["trust_model", "labels_then_position"]
+RunState = Literal["SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED"]
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ unresolved path in best_guess.
 
 import unicodedata
 
-from core.domain.models import Option
+from core.domain.models import AnswerMapping, Option
 
 _PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
 _ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
@@ -25,7 +25,8 @@ def normalize(text: str) -> str:
     return "".join(ch for ch in text if not ch.isspace() and unicodedata.category(ch)[0] != "P")
 
 
-def _normalized_label_index(raw_answer: str) -> int | None:
+def normalized_label_index(raw_answer: str) -> int | None:
+    """Map a raw answer (letter, Persian/Arabic ordinal, or digit) to an option index."""
     normalized = normalize(raw_answer).upper()
     if normalized in _LETTER_TO_INDEX:
         return _LETTER_TO_INDEX[normalized]
@@ -40,7 +41,7 @@ def _normalized_label_index(raw_answer: str) -> int | None:
 
 def matches(raw_answer: str, options: list[Option]) -> bool:
     """True when the answer identifies one of the options (letter or ordinal)."""
-    index = _normalized_label_index(raw_answer)
+    index = normalized_label_index(raw_answer)
     return index is not None and 0 <= index < len(options)
 
 
@@ -57,10 +58,10 @@ def fuzzy_matches(raw_answer: str, options: list[Option]) -> bool:
         return True
     normalized = normalize(raw_answer).upper()
     for i in range(len(normalized)):
-        if _normalized_label_index(normalized[:i] + normalized[i + 1 :]) is not None:
+        if normalized_label_index(normalized[:i] + normalized[i + 1 :]) is not None:
             return True
     for _from, to in _CONFUSABLE_LETTERS:
-        if to == normalized and _normalized_label_index(_from) is not None:
+        if to == normalized and normalized_label_index(_from) is not None:
             return True
     return False
 
@@ -79,7 +80,7 @@ _CONFUSABLE_LETTERS: list[tuple[str, str]] = [
 
 def resolve_fuzzy_letter(raw_answer: str, options: list[Option]) -> str | None:
     """Letter for an answer only the fuzzy tier accepts; None if truly unmappable."""
-    index = _normalized_label_index(raw_answer)
+    index = normalized_label_index(raw_answer)
     if index is None or not 0 <= index < len(options):
         # Out-of-range strict mappings (G for a 4-option block) fall through to
         # the confusable table: OCR reads C as G, not as option G.
@@ -93,20 +94,29 @@ def resolve_fuzzy_letter(raw_answer: str, options: list[Option]) -> str | None:
     return options[index].label
 
 
-def resolve_letter(strategy: str, raw_answer: str, options: list[Option]) -> str | None:
+def resolve_letter(strategy: AnswerMapping, raw_answer: str, options: list[Option]) -> str | None:
     """Map a raw model answer to the output letter under the chosen strategy.
 
     trust_model: the model is prompted to answer A–D; its validated letter is
     the output verbatim. labels_then_position: printed labels (Persian digits
     or ordinal letters) map positionally; a Latin letter falls back to its own
     position. Anything unmappable yields None — callers surface unresolved.
+    Unknown strategies raise: silently treating one as labels_then_position
+    would hide config mistakes.
     """
-    index = _normalized_label_index(raw_answer)
+    index = normalized_label_index(raw_answer)
     if index is None or not 0 <= index < len(options):
         return None
-    if strategy == "trust_model" and normalized_is_letter(raw_answer):
-        return normalize(raw_answer).upper()
-    return options[index].label
+    if strategy == "trust_model":
+        if normalized_is_letter(raw_answer):
+            return normalize(raw_answer).upper()
+        return options[index].label
+    if strategy == "labels_then_position":
+        return options[index].label
+    raise ValueError(
+        f"Unknown answer mapping strategy '{strategy}'. "
+        f"Valid options: trust_model, labels_then_position."
+    )
 
 
 def normalized_is_letter(raw_answer: str) -> bool:

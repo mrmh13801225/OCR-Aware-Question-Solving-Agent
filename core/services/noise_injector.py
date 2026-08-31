@@ -115,7 +115,5 @@ class NoiseInjector:
         options = [
             Option(label=o.label, text=corrupted[i + 1]) for i, o in enumerate(block.options)
         ]
-        corrupted_block = replace(
-            block, question_text=question_text, options=options, raw_text=block.raw_text
-        )
+        corrupted_block = replace(block, question_text=question_text, options=options)
         return replace(corrupted_block, raw_text=serialize(corrupted_block))
