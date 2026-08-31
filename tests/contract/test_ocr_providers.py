@@ -101,10 +101,17 @@ def _empty_payload(adapter: str) -> str:
 
 
 def _fixture_handler(adapter: str, case: str) -> Callable[[httpx.Request], httpx.Response]:
-    """Serve the fixture for both single-shot (nanonets) and submit+poll (datalab) flows."""
+    """Serve the fixture for both single-shot (nanonets) and submit+poll (datalab) flows.
+
+    Method-aware: every adapter submits via POST (extract or submit step);
+    datalab's poll is the only GET. Any other method is a contract bug in
+    the adapter — fail loudly instead of serving the payload.
+    """
     payload = (FIXTURE_ROOT / adapter / f"{case}.json").read_bytes()
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.method not in ("POST", "GET"):
+            return httpx.Response(500, json={"error": f"unexpected method {request.method}"})
         return httpx.Response(200, content=payload)
 
     return handler

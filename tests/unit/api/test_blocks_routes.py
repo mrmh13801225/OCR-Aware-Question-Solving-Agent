@@ -99,6 +99,32 @@ async def test_batch_solves_each_block_and_returns_list(client) -> None:
     assert all("answer" in result for result in body["results"])
 
 
+async def test_batch_rejects_malformed_blocks_with_422(client) -> None:
+    response = await client.post(
+        "/api/v1/blocks/batch",
+        json={"blocks": [{"image_base64": IMAGE_B64}, {"bogus": 1}]},
+    )
+    assert response.status_code == 422
+
+
+async def test_batch_rejects_body_without_blocks_list_with_422(client) -> None:
+    response = await client.post("/api/v1/blocks/batch", json={"wrong": []})
+    assert response.status_code == 422
+
+
+async def test_solve_rejects_invalid_base64_with_422(client) -> None:
+    response = await client.post("/api/v1/blocks/solve", json={"image_base64": "not-base64!!"})
+    assert response.status_code == 422
+
+
+async def test_providers_lists_models_per_provider(client) -> None:
+    response = await client.get("/api/v1/providers")
+    body = response.json()
+    assert response.status_code == 200
+    assert body["models"]["claude"]
+    assert body["models"]["local_vlm"]
+
+
 async def test_results_endpoint_lists_saved_results(client) -> None:
     await client.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
     response = await client.get("/api/v1/results")

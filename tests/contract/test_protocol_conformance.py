@@ -1,12 +1,13 @@
 """T3.3 — every registered adapter satisfies its runtime-checkable protocol."""
 
+from api.run_registry import RunEventLog
 from config import (
     OCR_PROVIDER_REGISTRY,
     REASONING_PROVIDER_REGISTRY,
     FakeOCRProvider,
     FakeReasoningProvider,
 )
-from core.domain.ports import OCRProvider, ReasoningProvider
+from core.domain.ports import OCRProvider, ReasoningProvider, RunEvent, RunEventListener
 
 
 def test_ocr_adapters_satisfy_the_protocol() -> None:
@@ -24,6 +25,13 @@ def test_reasoning_adapters_satisfy_the_protocol() -> None:
 def test_fakes_satisfy_the_protocols_too() -> None:
     assert isinstance(FakeOCRProvider(), OCRProvider)
     assert isinstance(FakeReasoningProvider(), ReasoningProvider)
+
+
+def test_run_event_log_satisfies_the_listener_protocol() -> None:
+    assert isinstance(RunEventLog(), RunEventListener)
+    log = RunEventLog()
+    log.on_event(RunEvent(run_state="SOLVE", attempt_index=0, detail="d"), run_id="r")
+    assert len(log.events("r")) == 1
 
 
 def _construct_ocr(name: str):

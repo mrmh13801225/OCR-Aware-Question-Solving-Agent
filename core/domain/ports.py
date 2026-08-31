@@ -47,6 +47,7 @@ class RunEvent:
     detail: str
 
 
+@runtime_checkable
 class RunEventListener(Protocol):
     """Observer port: one event stream feeds SSE, the CLI trace, and tests."""
 
