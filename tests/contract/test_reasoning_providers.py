@@ -75,12 +75,20 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
     import anthropic
 
     from providers.reasoning.claude import ClaudeReasoningProvider
+    from providers.reasoning.openai_compatible import OpenAICompatibleReasoningProvider
 
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
     if adapter == "claude":
-        client = anthropic.Anthropic(
-            api_key="test-key", http_client=httpx.Client(transport=httpx.MockTransport(handler))
-        )
+        client = anthropic.Anthropic(api_key="test-key", http_client=transport)
         return ClaudeReasoningProvider(api_key="test-key", client=client), handler
+    if adapter == "openai_compatible":
+        provider = OpenAICompatibleReasoningProvider(
+            base_url="http://test.local/v1",
+            api_key="test-key",
+            model="test-model",
+            http_client=transport,
+        )
+        return provider, handler
 
     from config import build_reasoning_provider
 
