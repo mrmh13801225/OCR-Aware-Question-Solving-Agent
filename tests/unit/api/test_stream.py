@@ -1,7 +1,16 @@
 """T4.3 — run registry and SSE stream behavior."""
 
+import asyncio
+import base64
+
+from httpx import ASGITransport, AsyncClient
+
+from api.main import create_app
 from api.run_registry import MAX_EVENTS_PER_RUN, RunEventLog
+from config import Settings
 from core.domain.ports import RunEvent
+
+IMAGE_B64 = base64.b64encode(b"fake-png").decode("utf-8")
 
 
 def _event(state: str, index: int = 0) -> RunEvent:
@@ -50,34 +59,73 @@ def test_events_without_run_id_are_dropped() -> None:
     assert log.events("") == []
 
 
-def test_stream_endpoint_serves_sse_payloads() -> None:
-    import asyncio
-    import base64
-
-    from httpx import ASGITransport, AsyncClient
-
-    from api.main import create_app
-    from config import Settings
+def test_stream_serves_events_for_stream_first_flow(tmp_path) -> None:
+    """API_SPEC sequence: open the stream FIRST, then issue the solve."""
 
     async def scenario() -> None:
         settings = Settings(_env_file=None, ocr_provider="fake", reasoning_provider="fake")
-        app = create_app(results_dir="ignored", settings=settings)
+        app = create_app(results_dir=str(tmp_path / "results"), settings=settings)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            # The stream GET runs as a concurrent task; the route yields every
+            # 0.1s, so the solve POST interleaves and feeds it events.
+            stream_task = asyncio.create_task(http.get("/api/v1/blocks/live-1/stream"))
+            await asyncio.sleep(0.3)
+            solve = await http.post(
+                "/api/v1/blocks/solve",
+                json={"image_base64": IMAGE_B64, "run_id": "live-1"},
+            )
+            assert solve.status_code == 200
+            stream_response = await stream_task
+            assert stream_response.status_code == 200
+            assert "text/event-stream" in stream_response.headers["content-type"]
+            assert "SOLVE" in stream_response.text
+            assert "DONE" in stream_response.text
+
+    asyncio.run(scenario())
+
+
+def test_stream_follows_and_terminates_after_solve(tmp_path) -> None:
+    """Solve-then-stream (late subscriber): buffered events replay, then close."""
+
+    async def scenario() -> None:
+        settings = Settings(_env_file=None, ocr_provider="fake", reasoning_provider="fake")
+        app = create_app(results_dir=str(tmp_path / "results"), settings=settings)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            solve = await http.post(
+                "/api/v1/blocks/solve",
+                json={"image_base64": IMAGE_B64, "run_id": "late-1"},
+            )
+            assert solve.status_code == 200
+            stream_response = await http.get("/api/v1/blocks/late-1/stream")
+            assert stream_response.status_code == 200
+            assert "SOLVE" in stream_response.text
+            assert "DONE" in stream_response.text
+
+    asyncio.run(scenario())
+
+
+def test_ocr_text_override_with_run_id_emits_events(tmp_path) -> None:
+    """The pre-parsed path runs the SAME loop — events must flow for SSE."""
+
+    async def scenario() -> None:
+        settings = Settings(_env_file=None, ocr_provider="fake", reasoning_provider="fake")
+        app = create_app(results_dir=str(tmp_path / "results"), settings=settings)
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as http:
             solve = await http.post(
                 "/api/v1/blocks/solve",
                 json={
-                    "image_base64": base64.b64encode(b"fake-png").decode("utf-8"),
-                    "run_id": "live-1",
+                    "image_base64": IMAGE_B64,
+                    "run_id": "override-1",
+                    "ocr_text": "کدام شهر؟\n۱) تهران\n۲) مشهد\n۳) اصفهان\n۴) تبریز",
                 },
             )
             assert solve.status_code == 200
-            stream_response = await http.get("/api/v1/blocks/live-1/stream")
-            assert stream_response.status_code == 200
-            assert "text/event-stream" in stream_response.headers["content-type"]
-            assert "SOLVE" in stream_response.text
-            assert "DONE" in stream_response.text
-            missing = await http.get("/api/v1/blocks/never-existed/stream")
-            assert missing.status_code == 404
+            registry = app.state.run_registry
+            states = [e.run_state for e in registry.events("override-1")]
+            assert "SOLVE" in states
+            assert "DONE" in states
 
     asyncio.run(scenario())

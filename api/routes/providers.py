@@ -17,7 +17,7 @@ def health() -> dict:
 
 @router.get("/providers")
 def providers(request: Request) -> dict:
-    from api.main import effective_settings
+    from api.deps import effective_settings
 
     settings = effective_settings(request)
     return {

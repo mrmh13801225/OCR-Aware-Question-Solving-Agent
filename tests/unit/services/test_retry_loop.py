@@ -64,6 +64,22 @@ class RecordingListener:
         self.events.append(event)
 
 
+@dataclass
+class IndexHardcodedReasoning:
+    """Mimics real adapters, which self-report attempt_index=0 on every call."""
+
+    answers: list[str]
+    solve_calls: int = 0
+
+    def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
+        self.solve_calls += 1
+        answer = self.answers[min(self.solve_calls - 1, len(self.answers) - 1)]
+        return SolveAttempt(raw_answer=answer, question_text_used=question_text, attempt_index=0)
+
+    def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
+        return block
+
+
 def _loop(
     ocr: FakeOCR, reasoning: ScriptedReasoning, cap: int = 2
 ) -> tuple[RetryLoop, RecordingListener]:
@@ -217,3 +233,25 @@ def test_done_event_carries_the_final_attempt_index() -> None:
     done_events = [e for e in listener.events if e.run_state == "DONE"]
     assert len(done_events) == 1
     assert done_events[0].attempt_index == 1
+
+
+def test_changed_true_even_when_adapters_hardcode_index_zero() -> None:
+    # Regression guard for the E1 fix: real adapters self-report attempt_index=0,
+    # so `changed` must derive from the attempt count, never from adapter state.
+    ocr, reasoning = FakeOCR(), IndexHardcodedReasoning(answers=["Z", "C"])
+    loop, _ = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.attempts == 2
+    assert result.changed is True
+
+
+def test_pre_parsed_ocr_text_skips_ocr_call_but_keeps_the_loop() -> None:
+    ocr, reasoning = FakeOCR(), ScriptedReasoning(answers=["Z", "C"])
+    loop, listener = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG, extracted=OCRText(text=RAW_TEXT, provider="client"))
+    assert ocr.calls == 0  # no OCR call
+    assert result.answer == "C"
+    assert result.changed is True
+    assert result.original_ocr_text == RAW_TEXT
+    states = [e.run_state for e in listener.events]
+    assert states == ["SOLVE", "VERIFY", "CORRECT", "SOLVE", "VERIFY", "DONE"]

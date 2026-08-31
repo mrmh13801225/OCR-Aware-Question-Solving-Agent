@@ -3,7 +3,13 @@
 from dataclasses import dataclass
 
 from core.domain.models import AnswerMapping, BlockResult, ParsedBlock, RunState, SolveAttempt
-from core.domain.ports import OCRProvider, ReasoningProvider, RunEvent, RunEventListener
+from core.domain.ports import (
+    OCRProvider,
+    OCRText,
+    ReasoningProvider,
+    RunEvent,
+    RunEventListener,
+)
 from core.services.answer_matcher import matches, resolve_letter
 from core.services.best_guess import pick_best
 from core.services.block_parser import parse
@@ -27,8 +33,9 @@ class RetryLoop:
     injector: NoiseInjector | None = None
     answer_mapping: AnswerMapping = "trust_model"
 
-    def solve_block(self, image: bytes) -> BlockResult:
-        extracted = self.ocr.extract_text(image)
+    def solve_block(self, image: bytes, extracted: OCRText | None = None) -> BlockResult:
+        if extracted is None:
+            extracted = self.ocr.extract_text(image)
         original_ocr_text = extracted.text
         block = parse(original_ocr_text)
 

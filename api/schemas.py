@@ -28,5 +28,5 @@ class BlockResultResponse(BaseModel):
         return cls(**vars(result))
 
 
-class SolveResponse(BlockResultResponse):
-    pass
+class BatchRequest(BaseModel):
+    blocks: list[SolveRequest]

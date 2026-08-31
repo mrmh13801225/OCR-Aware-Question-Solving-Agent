@@ -6,20 +6,28 @@ import json
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+IDLE_TIMEOUT_SECONDS = 60.0
+POLL_INTERVAL_SECONDS = 0.1
+
 router = APIRouter()
 
 
 @router.get("/blocks/{run_id}/stream")
 async def stream(run_id: str, request: Request) -> StreamingResponse:
+    """Stream one run's retry-loop events.
+
+    Per API_SPEC the client may open this stream BEFORE issuing the solve
+    call — an unknown run_id is legal: the stream follows, waiting for
+    events, until the run terminates or the idle timeout expires.
+    """
     registry = request.app.state.run_registry
-    if not registry.known(run_id):
-        return StreamingResponse(iter([]), status_code=404)
 
     async def event_source():
         sent = 0
+        idle_for = 0.0
         while True:
-            events = registry.stream_from(run_id, after=sent)
-            for event in events:
+            new_events = list(registry.stream_from(run_id, after=sent))
+            for event in new_events:
                 payload = json.dumps(
                     {
                         "run_state": event.run_state,
@@ -30,8 +38,13 @@ async def stream(run_id: str, request: Request) -> StreamingResponse:
                 )
                 yield f"data: {payload}\n\n"
                 sent += 1
-            if registry.is_finished(run_id):
+                idle_for = 0.0
+            if registry.is_finished(run_id) and sent >= len(registry.events(run_id)):
                 return
-            await asyncio.sleep(0.1)
+            if not new_events:
+                idle_for += POLL_INTERVAL_SECONDS
+                if idle_for > IDLE_TIMEOUT_SECONDS:
+                    return
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
