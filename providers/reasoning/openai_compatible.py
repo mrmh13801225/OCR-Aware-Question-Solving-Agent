@@ -6,18 +6,13 @@ Claude adapter so every reasoning provider demands the same contract.
 """
 
 import base64
-import json
 
 import httpx
 
-from core.domain.errors import (
-    ProviderAuthError,
-    ProviderRateLimitError,
-    ProviderResponseError,
-    ProviderTimeoutError,
-)
+from core.domain.errors import ProviderResponseError
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import ReasoningProvider
+from providers.http import call_vendor, json_field, raise_for_status
 from providers.reasoning.prompts import (
     correct_system_prompt,
     correct_user_text,
@@ -83,8 +78,9 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         }
 
     def _chat(self, system: str, content: list[dict]) -> str:
-        try:
-            response = self._client.post(
+        response = call_vendor(
+            "openai_compatible",
+            lambda: self._client.post(
                 f"{self._base_url}/chat/completions",
                 json={
                     "model": self._model,
@@ -94,27 +90,13 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
                         {"role": "user", "content": content},
                     ],
                 },
-            )
-        except httpx.TimeoutException as exc:
-            raise ProviderTimeoutError(str(exc), provider="openai_compatible") from exc
-        except httpx.HTTPError as exc:
-            raise ProviderTimeoutError(
-                f"connection failed: {exc}", provider="openai_compatible"
+            ),
+        )
+        raise_for_status(response, "openai_compatible")
+        data = json_field(response, "openai_compatible")
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderResponseError(
+                f"malformed reply from vendor: {exc}", provider="openai_compatible"
             ) from exc
-        return _reply_text(response)
-
-
-def _reply_text(response: httpx.Response) -> str:
-    if response.status_code == 401:
-        raise ProviderAuthError(response.text, provider="openai_compatible")
-    if response.status_code == 429:
-        raise ProviderRateLimitError(response.text, provider="openai_compatible")
-    if response.status_code >= 400:
-        raise ProviderResponseError(response.text, provider="openai_compatible")
-    try:
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        raise ProviderResponseError(
-            f"malformed reply from vendor: {exc}", provider="openai_compatible"
-        ) from exc

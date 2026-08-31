@@ -1,18 +1,13 @@
 """Datalab OCR adapter: olm OCR with submit-then-poll over datalab.to."""
 
 import base64
-import json
 import time
 
 import httpx
 
-from core.domain.errors import (
-    ProviderAuthError,
-    ProviderRateLimitError,
-    ProviderResponseError,
-    ProviderTimeoutError,
-)
+from core.domain.errors import ProviderResponseError, ProviderTimeoutError
 from core.domain.ports import OCRProvider, OCRText
+from providers.http import call_vendor, json_field, raise_for_status
 
 EXTRACT_URL = "https://www.datalab.to/api/v1/olm"
 TIMEOUT_SECONDS = 120.0
@@ -25,7 +20,8 @@ class DatalabOCRProvider(OCRProvider):
 
     The API is asynchronous: submit returns a status_url, polling it until
     success yields the markdown transcription. The HTTP client is injected
-    so contract tests replay fixtures with no network.
+    so contract tests replay fixtures with no network; clock and sleep are
+    injectable so the poll loop runs instantly in tests.
     """
 
     def __init__(
@@ -43,28 +39,27 @@ class DatalabOCRProvider(OCRProvider):
         self._sleep = sleep
 
     def extract_text(self, image: bytes) -> OCRText:
-        try:
-            status_url = self._submit(image)
-            markdown = self._poll(status_url)
-        except httpx.TimeoutException as exc:
-            raise ProviderTimeoutError(str(exc), provider="datalab") from exc
-        except httpx.HTTPError as exc:
-            raise ProviderTimeoutError(f"connection failed: {exc}", provider="datalab") from exc
+        status_url = self._submit(image)
+        markdown = self._poll(status_url)
         return OCRText(text=markdown, provider="datalab")
 
     def _submit(self, image: bytes) -> str:
-        response = self._client.post(
-            EXTRACT_URL,
-            json={
-                "image": base64.b64encode(image).decode("utf-8"),
-                "file_type": "image/png",
-                "model": "olm-base",
-            },
+        response = call_vendor(
+            "datalab",
+            lambda: self._client.post(
+                EXTRACT_URL,
+                json={
+                    "image": base64.b64encode(image).decode("utf-8"),
+                    "file_type": "image/png",
+                    "model": "olm-base",
+                },
+            ),
         )
-        _check_status(response)
+        raise_for_status(response, "datalab")
+        data = json_field(response, "datalab")
         try:
-            return response.json()["status_url"]
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            return data["status_url"]
+        except KeyError as exc:
             raise ProviderResponseError(
                 f"malformed submit reply from vendor: {exc}", provider="datalab"
             ) from exc
@@ -72,12 +67,12 @@ class DatalabOCRProvider(OCRProvider):
     def _poll(self, status_url: str) -> str:
         started = self._clock()
         while True:
-            response = self._client.get(status_url)
-            _check_status(response)
-            data = _json_body(response)
+            response = call_vendor("datalab", lambda: self._client.get(status_url))
+            raise_for_status(response, "datalab")
+            data = json_field(response, "datalab")
             if data.get("success"):
                 return str(data.get("markdown", ""))
-            if "error" in data and data["error"]:
+            if data.get("error"):
                 raise ProviderResponseError(
                     f"vendor reported failure: {data['error']}", provider="datalab"
                 )
@@ -86,24 +81,3 @@ class DatalabOCRProvider(OCRProvider):
                     f"polling exceeded {POLL_LIMIT_SECONDS:.0f}s", provider="datalab"
                 )
             self._sleep(POLL_INTERVAL_SECONDS)
-
-
-def _check_status(response: httpx.Response) -> None:
-    if response.status_code == 401:
-        raise ProviderAuthError(response.text, provider="datalab")
-    if response.status_code == 429:
-        raise ProviderRateLimitError(response.text, provider="datalab")
-    if response.status_code >= 400:
-        raise ProviderResponseError(response.text, provider="datalab")
-
-
-def _json_body(response: httpx.Response) -> dict:
-    try:
-        data = response.json()
-        if not isinstance(data, dict):
-            raise TypeError("expected a JSON object")
-        return data
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise ProviderResponseError(
-            f"malformed reply from vendor: {exc}", provider="datalab"
-        ) from exc
