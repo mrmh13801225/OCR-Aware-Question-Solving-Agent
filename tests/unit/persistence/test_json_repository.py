@@ -1,6 +1,7 @@
 """T2.4 — flat-JSON result repository: atomic writes, round-trip, RESULTS_DIR."""
 
 import json
+import tempfile
 from pathlib import Path
 
 from core.domain.models import BlockResult
@@ -28,6 +29,15 @@ def test_list_round_trips_results(tmp_path: Path) -> None:
     results = repo.list()
     assert [r.answer for r in results] == ["A", "B"]
     assert all(isinstance(r, BlockResult) for r in results)
+
+
+def test_list_returns_insertion_order() -> None:
+    for _ in range(10):
+        repo_dir = Path(tempfile.mkdtemp())
+        repo = JSONFileResultRepository(results_dir=repo_dir)
+        for answer in ("A", "B", "C"):
+            repo.save(_result(answer))
+        assert [r.answer for r in repo.list()] == ["A", "B", "C"]
 
 
 def test_list_empty_returns_empty_list(tmp_path: Path) -> None:

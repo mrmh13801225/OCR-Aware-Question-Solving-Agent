@@ -2,8 +2,10 @@
 
 import json
 import os
+import time
 import uuid
 from dataclasses import asdict
+from itertools import count
 from pathlib import Path
 
 from core.domain.models import BlockResult
@@ -11,14 +13,23 @@ from core.domain.ports import ResultRepository
 
 
 class JSONFileResultRepository(ResultRepository):
-    """Repository port implementation over flat JSON files under results_dir."""
+    """Repository port implementation over flat JSON files under results_dir.
+
+    Filenames sort lexicographically in insertion order — what the deliverable
+    output and evaluation need. time_ns() alone is insufficient: the Windows
+    clock can return identical values for consecutive saves, so a per-instance
+    monotonic counter disambiguates within a process and the stamp orders
+    across restarts. The short uuid suffix is a final uniqueness backstop.
+    """
 
     def __init__(self, results_dir: str | Path) -> None:
         self._dir = Path(results_dir)
+        self._counter = count()
 
     def save(self, result: BlockResult) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
-        target = self._dir / f"{uuid.uuid4().hex}.json"
+        name = f"{time.time_ns():020d}-{next(self._counter):06d}-{uuid.uuid4().hex[:8]}"
+        target = self._dir / f"{name}.json"
         # Write-then-replace: a crash mid-write leaves a .tmp, never a partial
         # result at the target path.
         tmp = target.with_suffix(".tmp")
