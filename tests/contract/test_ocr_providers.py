@@ -31,12 +31,16 @@ def _fixture_text(adapter: str) -> str:
 
 
 def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
+    from providers.ocr.datalab import DatalabOCRProvider
     from providers.ocr.nanonets import NanonetsOCRProvider
 
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
     if adapter == "nanonets":
-        transport = httpx.Client(transport=httpx.MockTransport(handler))
-        provider = NanonetsOCRProvider(api_key="test-key", http_client=transport)
-        return provider
+        return NanonetsOCRProvider(api_key="test-key", http_client=transport)
+    if adapter == "datalab":
+        return DatalabOCRProvider(
+            api_key="test-key", http_client=transport, clock=lambda: 0.0, sleep=lambda _s: None
+        )
 
     from config import build_ocr_provider
 
@@ -47,16 +51,13 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
 @pytest.mark.parametrize("adapter", ADAPTER_NAMES)
 class TestOCRContract:
     def test_extract_text_happy_path_returns_text(self, adapter: str) -> None:
-        provider = _build(
-            adapter, lambda request: httpx.Response(200, content=_fixture_text(adapter).encode())
-        )
+        provider = _build(adapter, _fixture_handler(adapter, "extract_ok"))
         extracted = provider.extract_text(IMAGE)
         assert extracted.text.strip()
         assert extracted.provider == adapter
 
     def test_empty_extraction_handled_gracefully(self, adapter: str) -> None:
-        payload = _empty_payload(adapter)
-        provider = _build(adapter, lambda request: httpx.Response(200, content=payload.encode()))
+        provider = _build(adapter, _fixture_handler(adapter, "extract_empty"))
         extracted = provider.extract_text(IMAGE)
         assert extracted.text == ""
 
@@ -92,3 +93,13 @@ class TestOCRContract:
 def _empty_payload(adapter: str) -> str:
     path = FIXTURE_ROOT / adapter / "extract_empty.json"
     return path.read_text(encoding="utf-8")
+
+
+def _fixture_handler(adapter: str, case: str) -> Callable[[httpx.Request], httpx.Response]:
+    """Serve the fixture for both single-shot (nanonets) and submit+poll (datalab) flows."""
+    payload = (FIXTURE_ROOT / adapter / f"{case}.json").read_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=payload)
+
+    return handler
