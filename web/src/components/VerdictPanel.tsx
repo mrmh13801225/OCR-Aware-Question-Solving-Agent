@@ -50,18 +50,55 @@ export function VerdictPanel({ result }: { result: BlockResult }) {
           </div>
         </div>
       </div>
-      <pre className="mt-auto overflow-auto rounded bg-codebg p-3 font-mono text-xs leading-relaxed text-ink">
-        {JSON.stringify(
-          {
-            answer: result.answer,
-            question_text: result.question_text,
-            changed: result.changed,
-            original_ocr_text: result.original_ocr_text,
-          },
-          null,
-          2,
-        )}
+      <pre className="mt-auto overflow-auto rounded bg-codebg p-3 font-mono text-xs leading-relaxed">
+        {jsonLines(result).map((line, index) => (
+          <JsonLine key={index} line={line} />
+        ))}
       </pre>
     </section>
+  );
+}
+
+interface JsonLine {
+  indent: number;
+  key?: string;
+  value?: string;
+  raw?: string;
+}
+
+/** Two-tone rendering: muted keys, ink string values, amber booleans/numbers. */
+function jsonLines(result: BlockResult): JsonLine[] {
+  const entries: [string, string | boolean | number][] = [
+    ["answer", result.answer],
+    ["question_text", result.question_text],
+    ["changed", result.changed],
+    ["original_ocr_text", result.original_ocr_text],
+    ["unresolved", result.unresolved],
+    ["attempts", result.attempts],
+  ];
+  const lines: JsonLine[] = [{ indent: 0, raw: "{" }];
+  entries.forEach(([key, value], index) => {
+    const comma = index < entries.length - 1 ? "," : "";
+    lines.push({
+      indent: 1,
+      key: `"${key}": `,
+      value: typeof value === "string" ? `"${value}${comma}"` : `${value}${comma}`,
+    });
+  });
+  lines.push({ indent: 0, raw: "}" });
+  return lines;
+}
+
+function JsonLine({ line }: { line: JsonLine }) {
+  const pad = "  ".repeat(line.indent);
+  if (line.raw !== undefined) {
+    return <div className="text-muted">{pad + line.raw}</div>;
+  }
+  const isString = line.value?.startsWith('"');
+  return (
+    <div>
+      <span className="text-muted">{pad + line.key}</span>
+      <span className={isString ? "text-ink" : "text-suspect"}>{line.value}</span>
+    </div>
   );
 }

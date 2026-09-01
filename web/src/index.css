@@ -6,4 +6,17 @@
   body {
     @apply bg-bg text-ink antialiased;
   }
+
+  :focus-visible {
+    outline: 2px solid #e5a54b;
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stamp-rotate,
+    .animate-pulse {
+      transform: none !important;
+      animation: none !important;
+    }
+  }
 }

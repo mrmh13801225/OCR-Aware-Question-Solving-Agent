@@ -6,7 +6,8 @@ import {
   type BlockResult,
   type ProviderInfo,
 } from "./api";
-import { followRun, randomRunId, type RunEvent } from "./runStream";
+import { followRun, randomRunId } from "./runStream";
+import type { TimedRunEvent } from "./components/RetryLoopPanel";
 import { BatchView, type BatchItem } from "./components/BatchView";
 import { RetryLoopPanel } from "./components/RetryLoopPanel";
 import { SettingsPanel, type Overrides } from "./components/SettingsPanel";
@@ -23,7 +24,7 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [result, setResult] = useState<BlockResult | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
+  const [events, setEvents] = useState<TimedRunEvent[]>([]);
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo | null>(null);
@@ -143,13 +144,21 @@ export default function App() {
   const runSingle = useCallback(async () => {
     if (!imageBase64 || !fileName) return;
     const runId = randomRunId();
-    setEvents([]);
+    const startedAt = Date.now();
+    // The OCR pass ran server-side; the chip marks step zero in the rail.
+    const ocrChip: TimedRunEvent = {
+      run_state: "OCR",
+      attempt_index: -1,
+      detail: fileName,
+      arrivedAt: startedAt,
+    };
+    setEvents([ocrChip]);
     setError(null);
     setRunState("running");
 
     abortStream();
     stopStreamRef.current = followRun(apiBase, runId, (event) => {
-      setEvents((previous) => [...previous, event]);
+      setEvents((previous) => [...previous, { ...event, arrivedAt: Date.now() }]);
     });
 
     const outcome = await solveBlock(apiBase, imageBase64, runId, asOverrides());
@@ -184,6 +193,13 @@ export default function App() {
   const run = mode === "batch" ? runBatch : runSingle;
   const busy = runState === "running";
   const hasContent = mode === "batch" ? batchItems.length > 0 : imageBase64 !== null;
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    setElapsedSeconds(0);
+    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [busy]);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -201,23 +217,48 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center gap-3 border-b border-edge px-5 py-3">
         <ShamsaMark />
+        {fileName && <span className="font-mono text-xs text-ink">{fileName}</span>}
         <span className="font-mono text-sm text-muted">
           OCR-Aware Question Solving Agent
         </span>
         <div className="ml-auto flex items-center gap-3">
-          <span className="font-mono text-xs text-muted">
-            OCR: {overrides.ocr_provider || providers?.configured.ocr || "—"}
-          </span>
-          <span className="font-mono text-xs text-muted">
-            Model: {overrides.reasoning_provider || providers?.configured.reasoning || "—"}
-          </span>
+          {providers && (
+            <select
+              value={overrides.ocr_provider}
+              onChange={(e) => setOverrides({ ...overrides, ocr_provider: e.target.value })}
+              className="rounded bg-codebg px-2 py-1 font-mono text-xs text-ink"
+              aria-label="OCR provider"
+            >
+              <option value="">OCR: {providers.configured.ocr}</option>
+              {providers.ocr.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
+          {providers && (
+            <select
+              value={overrides.reasoning_provider}
+              onChange={(e) => setOverrides({ ...overrides, reasoning_provider: e.target.value })}
+              className="rounded bg-codebg px-2 py-1 font-mono text-xs text-ink"
+              aria-label="Reasoning model"
+            >
+              <option value="">Model: {providers.configured.reasoning}</option>
+              {providers.reasoning.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             onClick={run}
             disabled={busy || (mode === "single" ? !imageBase64 : !batchItems.some((i) => i.imageBase64))}
             className="rounded bg-suspect px-4 py-1.5 text-sm font-medium text-bg disabled:opacity-40"
           >
             {busy
-              ? "Solving…"
+              ? `Solving… ${elapsedSeconds}s`
               : mode === "batch"
                 ? `Solve ${batchItems.filter((i) => i.imageBase64).length}`
                 : "Solve"}
@@ -242,6 +283,7 @@ export default function App() {
           <SourcePanel
             imageUrl={imageUrl}
             ocrText={result?.original_ocr_text ?? null}
+            finalQuestionText={result?.question_text ?? null}
             fileName={fileName}
           />
         ) : (
@@ -254,7 +296,7 @@ export default function App() {
           />
         )}
 
-        {mode === "single" && <RetryLoopPanel events={events} running={busy} />}
+        {mode === "single" && <RetryLoopPanel events={events} running={busy} result={result} />}
 
         {mode === "single" && result ? (
           <VerdictPanel result={result} />

@@ -1,14 +1,17 @@
 import { useState } from "react";
+import { hasChanges, wordDiff } from "../wordDiff";
 
 type Tab = "ocr" | "image";
 
 export function SourcePanel({
   imageUrl,
   ocrText,
+  finalQuestionText,
   fileName,
 }: {
   imageUrl: string | null;
   ocrText: string | null;
+  finalQuestionText: string | null;
   fileName: string | null;
 }) {
   const [tab, setTab] = useState<Tab>("image");
@@ -33,13 +36,60 @@ export function SourcePanel({
           />
         )}
         {tab === "ocr" && ocrText && (
-          <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
-            {ocrText}
-          </p>
+          <OcrText ocrText={ocrText} finalQuestionText={finalQuestionText} />
         )}
         {!imageUrl && <p className="text-sm text-muted">No image loaded.</p>}
       </div>
     </section>
+  );
+}
+
+/**
+ * The original OCR text; words the correction changed carry the amber
+ * highlighter — the proofreader's "this looked wrong" mark (§9.3).
+ */
+function OcrText({
+  ocrText,
+  finalQuestionText,
+}: {
+  ocrText: string;
+  finalQuestionText: string | null;
+}) {
+  if (!finalQuestionText) {
+    return (
+      <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
+        {ocrText}
+      </p>
+    );
+  }
+  const changes = wordDiff(ocrText, finalQuestionText);
+  if (!hasChanges(changes)) {
+    return (
+      <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
+        {ocrText}
+      </p>
+    );
+  }
+  return (
+    <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
+      {changes.map((change, index) => {
+        if (change.type === "same") {
+          return <span key={index}>{change.text} </span>;
+        }
+        if (change.type === "removed") {
+          return (
+            <mark key={index} className="rounded bg-suspect/30 px-0.5 text-ink">
+              {change.text}{" "}
+            </mark>
+          );
+        }
+        return (
+          <span key={index} className="text-suspect">
+            {change.text}{" "}
+          </span>
+        );
+      })}
+    </p>
   );
 }
 
