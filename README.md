@@ -1,41 +1,76 @@
 # OCR-Aware Question Solving Agent
 
-> TODO once implemented: 1–2 sentence summary.
+A hexagonal Python service that solves Persian multiple-choice questions from scanned exam
+images. It runs OCR on the image, parses the question block, and asks a vision-capable LLM
+for the answer — and when the answer matches none of the printed options, it treats that
+mismatch as evidence the OCR text is broken: it re-reads the image, makes a minimal
+image-grounded correction, and re-solves, up to a declared retry cap. See `WRITEUP.md` for
+the design rationale.
 
 ## Setup
 
 ```
-# TODO: python venv/uv instructions
-# TODO: npm install for web/
+python -m venv .venv
+.venv\Scripts\activate        # Windows (source .venv/bin/activate on POSIX)
+pip install -e ".[dev]"
+copy .env.example .env        # fill in the keys for the providers you use
 ```
+
+Set `PYTHONUTF8=1` on Windows (the console encoding must handle Persian output).
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in the keys for whichever providers you use. See `DESIGN.md` §12 for the full variable reference.
+Providers are selected via env vars (see `.env.example`): `OCR_PROVIDER` picks the OCR
+adapter (Nanonets, Datalab, or a locally-served vision model), `REASONING_PROVIDER` picks
+the solver (Claude, or any OpenAI-compatible endpoint such as vLLM/Ollama). `RETRY_CAP`
+(default 2), `ANSWER_MAPPING`, `NOISE_RATE`, and `NOISE_SEED` tune the loop; `RESULTS_DIR`
+is where solved blocks persist as flat JSON.
 
 ## Running
 
+Start the API server (the CLI and web UI are thin clients of it):
+
 ```
-# TODO: uvicorn command
-# TODO: cli usage
-# TODO: web dev server command
+uvicorn api.main:app --ws none
+```
+
+Terminal client:
+
+```
+python -m cli.main solve tests/fixtures/samples/q113.png --trace
+python -m cli.main batch tests/fixtures/samples
+python -m cli.main providers
+```
+
+Web UI:
+
+```
+cd web && npm install && npm run dev     # proxies /api to the server above
 ```
 
 ## OCR provider used
 
-> TODO: state which of Nanonets / Datalab was used for the submitted sample output, and why.
+Nanonets and Datalab are both implemented and contract-tested; the submitted sample output
+was produced with **`OCR_PROVIDER` = the winner of the live comparison below** (fill in
+after the live pass — see `WRITEUP.md` for the comparison criteria and result).
 
 ## Producing the required sample output
+
+With the API server running:
 
 ```
 python scripts/run_samples.py --samples tests/fixtures/samples --out results/samples.jsonl
 ```
 
+One JSON object per sample block, exactly the brief's schema:
+`{"answer", "question_text", "changed", "original_ocr_text"}`.
+
 ## Tests
 
 ```
-pytest              # mocked suite, no API keys needed
-pytest -m live       # live E2E against real provider keys
+pytest              # 180 mocked tests, no API keys needed
+pytest -m live      # live E2E against real provider keys — run once before submitting
 ```
 
-See `TESTING.md` for the full test policy.
+The contract suite replays recorded fixtures through injected HTTP transports, so CI runs
+with zero keys; only `pytest -m live` touches the vendors.
