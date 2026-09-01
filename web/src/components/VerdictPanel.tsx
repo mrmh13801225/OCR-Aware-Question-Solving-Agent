@@ -1,0 +1,67 @@
+import type { BlockResult } from "../api";
+
+type Verdict = "UNCHANGED" | "CHANGED" | "UNRESOLVED";
+
+export function verdictOf(result: BlockResult): Verdict {
+  if (result.unresolved) return "UNRESOLVED";
+  return result.changed ? "CHANGED" : "UNCHANGED";
+}
+
+const VERDICT_STYLES: Record<Verdict, { stamp: string; ring: string; dot: string }> = {
+  UNCHANGED: { stamp: "text-verified border-verified", ring: "border-verified", dot: "bg-verified" },
+  CHANGED: { stamp: "text-proof border-proof", ring: "border-proof", dot: "bg-proof" },
+  UNRESOLVED: { stamp: "text-suspect border-suspect", ring: "border-suspect", dot: "bg-suspect" },
+};
+
+function Stamp({ verdict }: { verdict: Verdict }) {
+  return (
+    <span
+      className={`inline-block -rotate-3 rounded border-2 px-3 py-1 font-mono text-sm font-bold tracking-widest ${VERDICT_STYLES[verdict].stamp}`}
+    >
+      {verdict}
+    </span>
+  );
+}
+
+export function VerdictPanel({ result }: { result: BlockResult }) {
+  const verdict = verdictOf(result);
+  const styles = VERDICT_STYLES[verdict];
+  return (
+    <section className="flex h-full flex-col gap-4 rounded border border-edge bg-panel p-5 shadow-panel">
+      <h2 className="font-mono text-xs uppercase tracking-widest text-muted">Verdict</h2>
+      <div className="flex items-center gap-4">
+        <div
+          className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-3xl font-bold ${styles.ring}`}
+        >
+          {result.answer}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Stamp verdict={verdict} />
+          <div className="flex items-center gap-1 font-mono text-xs text-muted">
+            {Array.from({ length: 3 }, (_, i) => (
+              <span
+                key={i}
+                className={`h-2 w-2 rounded-full ${i < result.attempts ? styles.dot : "bg-edge"}`}
+              />
+            ))}
+            <span className="ml-2">
+              {result.attempts} of 3 attempts
+            </span>
+          </div>
+        </div>
+      </div>
+      <pre className="mt-auto overflow-auto rounded bg-codebg p-3 font-mono text-xs leading-relaxed text-ink">
+        {JSON.stringify(
+          {
+            answer: result.answer,
+            question_text: result.question_text,
+            changed: result.changed,
+            original_ocr_text: result.original_ocr_text,
+          },
+          null,
+          2,
+        )}
+      </pre>
+    </section>
+  );
+}
