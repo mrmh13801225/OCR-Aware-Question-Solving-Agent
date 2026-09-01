@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { fetchProviders, solveBlock, type BlockResult, type ProviderInfo } from "./api";
+import { randomRunId, type RunEvent } from "./runStream";
+import { followRun } from "./runStream";
+import { RetryLoopPanel } from "./components/RetryLoopPanel";
 import { SourcePanel } from "./components/SourcePanel";
 import { VerdictPanel } from "./components/VerdictPanel";
 
@@ -11,9 +14,11 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [result, setResult] = useState<BlockResult | null>(null);
+  const [events, setEvents] = useState<RunEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<(() => void) | null>(null);
 
   const apiBase = ""; // same origin; vite proxies /api to the backend
 
@@ -28,6 +33,7 @@ export default function App() {
       setImageUrl(reader.result as string);
       setFileName(file.name);
       setResult(null);
+      setEvents([]);
       setError(null);
       setRunState("idle");
     };
@@ -36,8 +42,18 @@ export default function App() {
 
   const run = useCallback(async () => {
     if (!imageBase64 || !fileName) return;
+    const runId = randomRunId();
+    setEvents([]);
+    setError(null);
     setRunState("running");
-    const outcome = await solveBlock(apiBase, imageBase64, `web-${fileName}`);
+
+    // Stream-first per API_SPEC: open the trace, then fire the solve.
+    const stopStream = followRun(apiBase, runId, (event) => {
+      setEvents((previous) => [...previous, event]);
+    });
+
+    const outcome = await solveBlock(apiBase, imageBase64, runId);
+    stopStream();
     if (outcome.ok && outcome.result) {
       setResult(outcome.result);
       setRunState("done");
@@ -100,13 +116,7 @@ export default function App() {
           />
         )}
 
-        <section className="hidden rounded border border-edge bg-panel p-5 shadow-panel lg:flex lg:flex-col">
-          <h2 className="font-mono text-xs uppercase tracking-widest text-muted">Retry loop</h2>
-          {runState === "running" && <p className="mt-4 text-sm text-muted">Running…</p>}
-          {runState === "idle" && (
-            <p className="mt-4 text-sm text-muted">The live trace appears here during a run.</p>
-          )}
-        </section>
+        <RetryLoopPanel events={events} running={busy} />
 
         {result ? (
           <VerdictPanel result={result} />

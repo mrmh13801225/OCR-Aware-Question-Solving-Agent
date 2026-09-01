@@ -47,7 +47,14 @@ async def stream(run_id: str, request: Request) -> StreamingResponse:
                     return
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-    return StreamingResponse(event_source(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _sse_payload(event) -> str:
