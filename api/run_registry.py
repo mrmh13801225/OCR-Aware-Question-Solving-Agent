@@ -39,9 +39,6 @@ class RunEventLog(RunEventListener):
     def is_finished(self, run_id: str) -> bool:
         return self._finished.get(run_id, False)
 
-    def known(self, run_id: str) -> bool:
-        return run_id in self._events
-
     def stream_from(self, run_id: str, after: int = 0) -> Iterator[RunEvent]:
         for index, event in enumerate(self._events.get(run_id, ())):
             if index >= after:

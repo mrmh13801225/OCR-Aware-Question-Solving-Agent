@@ -5,13 +5,14 @@ from fastapi import APIRouter, Request
 from config import (
     OCR_PROVIDER_NAMES,
     REASONING_PROVIDER_NAMES,
+    Settings,
 )
 from providers.reasoning.claude import MODEL as CLAUDE_MODEL
 
 router = APIRouter()
 
 
-def _default_models(settings) -> dict:
+def _default_models(settings: Settings) -> dict:
     return {
         "claude": CLAUDE_MODEL,
         "openai_compatible": settings.openai_compat_model,

@@ -5,8 +5,10 @@ this). The CLI never imports core or providers; it only speaks HTTP.
 """
 
 import base64
+import contextlib
 import json
 import sys
+import threading
 from pathlib import Path
 
 import httpx
@@ -85,16 +87,59 @@ def solve(
     image_path: Path = typer.Argument(..., exists=True, readable=True),
     base_url: str = typer.Option(DEFAULT_BASE_URL, "--base-url"),
     inject_noise: bool = typer.Option(False, "--inject-noise"),
+    trace: bool = typer.Option(False, "--trace", help="Stream retry-loop events live."),
 ) -> None:
     """Solve one question block image through the API."""
+    run_id = f"cli-{image_path.stem}"
     payload = {
         "image_base64": _encode_image(image_path),
         "inject_noise": inject_noise,
-        "run_id": f"cli-{image_path.stem}",
+        "run_id": run_id,
     }
     with http_client_for(base_url) as client:
-        result = _post(client, "/api/v1/blocks/solve", payload)
+        if trace:
+            with _trace_reader(client, run_id):
+                result = _post(client, "/api/v1/blocks/solve", payload)
+        else:
+            result = _post(client, "/api/v1/blocks/solve", payload)
     _print_result(result)
+
+
+@contextlib.contextmanager
+def _trace_reader(client: httpx.Client, run_id: str):
+    """Stream-first SSE reader: opened before the solve, per API_SPEC.
+
+    Runs on a daemon thread that prints each event as it arrives; the
+    context closes when the stream ends (terminal or TIMEOUT event).
+    """
+    lines: list[str] = []
+
+    def read_stream() -> None:
+        try:
+            with client.stream("GET", f"/api/v1/blocks/{run_id}/stream") as response:
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        lines.append(line)
+        except httpx.HTTPError:
+            return  # trace is best-effort; the solve result is authoritative
+
+    thread = threading.Thread(target=read_stream, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        thread.join(timeout=65.0)  # idle timeout (60s) + margin
+        for line in lines:
+            try:
+                event = json.loads(line.removeprefix("data: "))
+            except json.JSONDecodeError:
+                continue
+            if event["run_state"] == "TIMEOUT":
+                console.print("[red]trace ended: run never arrived (TIMEOUT)[/red]")
+            else:
+                state = event["run_state"]
+                index = event["attempt_index"]
+                console.print(f"[muted]{state} · {index} · {event['detail']}[/muted]")
 
 
 @app.command()

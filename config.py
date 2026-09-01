@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     retry_cap: int = Field(default=2, ge=0)
     answer_mapping: AnswerMapping = "trust_model"
     noise_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+    noise_seed: int = 42
     results_dir: str = "./results"
 
 

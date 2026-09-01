@@ -35,7 +35,8 @@ def test_stream_from_after_skips_replayed_prefix() -> None:
 def test_unknown_run_id_is_ignorable() -> None:
     log = RunEventLog()
     assert log.events("nope") == []
-    assert not log.known("nope")
+    assert log.stream_from("nope") is not None
+    assert not log.is_finished("nope")
 
 
 def test_terminal_event_marks_run_finished() -> None:
@@ -127,5 +128,21 @@ def test_ocr_text_override_with_run_id_emits_events(tmp_path) -> None:
             states = [e.run_state for e in registry.events("override-1")]
             assert "SOLVE" in states
             assert "DONE" in states
+
+    asyncio.run(scenario())
+
+
+def test_stream_ends_with_timeout_event_on_idle_exit(tmp_path) -> None:
+    """A stream whose run never produces events closes with a TIMEOUT marker."""
+
+    async def scenario() -> None:
+        settings = Settings(_env_file=None, ocr_provider="fake", reasoning_provider="fake")
+        app = create_app(results_dir=str(tmp_path / "results"), settings=settings)
+        app.state.stream_idle_timeout = 0.2  # fast test; production default 60
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
+            stream_response = await http.get("/api/v1/blocks/never-arrives/stream")
+            assert stream_response.status_code == 200
+            assert "TIMEOUT" in stream_response.text
 
     asyncio.run(scenario())

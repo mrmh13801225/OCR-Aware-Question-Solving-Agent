@@ -6,9 +6,10 @@ import binascii
 from fastapi import APIRouter, HTTPException, Request
 
 from api.deps import effective_settings
+from api.run_registry import RunEventLog
 from api.schemas import BatchRequest, BlockResultResponse, SolveRequest
 from config import build_ocr_provider, build_reasoning_provider
-from core.domain.ports import OCRText, RunEventListener
+from core.domain.ports import OCRText, RunEvent, RunEventListener
 from core.services.noise_injector import NoiseInjector
 from core.services.retry_loop import RetryLoop
 
@@ -18,11 +19,11 @@ router = APIRouter()
 class _RunListener:
     """Forwards loop events into the registry under the request's run_id."""
 
-    def __init__(self, registry, run_id: str) -> None:
+    def __init__(self, registry: RunEventLog, run_id: str) -> None:
         self._registry = registry
         self._run_id = run_id
 
-    def on_event(self, event) -> None:
+    def on_event(self, event: RunEvent) -> None:
         self._registry.on_event(event, run_id=self._run_id)
 
 
@@ -35,7 +36,11 @@ def _solve_one(request: Request, body: SolveRequest) -> BlockResultResponse:
 
     registry = request.app.state.run_registry
     listener: RunEventListener = _RunListener(registry, body.run_id) if body.run_id else registry
-    injector = NoiseInjector(rate=settings.noise_rate, seed=42) if body.inject_noise else None
+    injector = (
+        NoiseInjector(rate=settings.noise_rate, seed=settings.noise_seed)
+        if body.inject_noise
+        else None
+    )
 
     loop = RetryLoop(
         ocr=ocr,

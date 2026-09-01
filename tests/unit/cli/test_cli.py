@@ -28,6 +28,16 @@ def test_solve_command_sends_image_bytes(tmp_path: Path, base_url: str) -> None:
     assert result.exit_code == 0
 
 
+def test_solve_trace_flag_streams_events(tmp_path: Path, base_url: str) -> None:
+    image_path = tmp_path / "q.png"
+    image_path.write_bytes(b"fake-png-bytes")
+    result = runner.invoke(app, ["solve", str(image_path), "--base-url", base_url, "--trace"])
+    assert result.exit_code == 0
+    assert "SOLVE" in result.output
+    assert "DONE" in result.output
+    assert "answer" in result.output.lower()  # result panel still prints
+
+
 def test_providers_command_lists_registered(base_url: str) -> None:
     result = runner.invoke(app, ["providers", "--base-url", base_url])
     assert result.exit_code == 0
