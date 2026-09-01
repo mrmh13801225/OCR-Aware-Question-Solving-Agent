@@ -41,7 +41,7 @@ export async function solveBlock(
 
 export async function solveBatch(
   apiBase: string,
-  images: { name: string; imageBase64: string }[],
+  images: { id: string; imageBase64: string }[],
   overrides: SolveOverrides = {},
 ): Promise<{ ok: boolean; results?: BlockResult[]; error?: string }> {
   try {
@@ -51,7 +51,7 @@ export async function solveBatch(
       body: JSON.stringify({
         blocks: images.map((image) => ({
           image_base64: image.imageBase64,
-          run_id: `web-batch-${image.name}`,
+          run_id: `web-batch-${image.id}`,
           ...overrides,
         })),
       }),

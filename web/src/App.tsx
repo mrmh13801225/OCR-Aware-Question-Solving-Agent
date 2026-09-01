@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchProviders,
   solveBatch,
@@ -29,12 +29,32 @@ export default function App() {
   const [providers, setProviders] = useState<ProviderInfo | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({ ocr_provider: "", reasoning_provider: "" });
   const fileInput = useRef<HTMLInputElement>(null);
+  const stopStreamRef = useRef<(() => void) | null>(null);
 
   const apiBase = ""; // same origin; vite proxies /api to the backend
 
-  if (providers === null) {
+  useEffect(() => {
     fetchProviders(apiBase).then(setProviders);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const abortStream = useCallback(() => {
+    stopStreamRef.current?.();
+    stopStreamRef.current = null;
+  }, []);
+
+  const resetToDropzone = useCallback(() => {
+    abortStream();
+    setMode("single");
+    setImageBase64(null);
+    setImageUrl(null);
+    setFileName(null);
+    setResult(null);
+    setEvents([]);
+    setBatchItems([]);
+    setError(null);
+    setRunState("idle");
+  }, [abortStream]);
 
   const asOverrides = useCallback(
     () => ({
@@ -44,44 +64,53 @@ export default function App() {
     [overrides],
   );
 
-  const loadSingle = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      setMode("single");
-      setImageBase64((reader.result as string).split(",")[1]);
-      setImageUrl(reader.result as string);
-      setFileName(file.name);
+  const loadSingle = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        abortStream();
+        setMode("single");
+        setImageBase64((reader.result as string).split(",")[1]);
+        setImageUrl(reader.result as string);
+        setFileName(file.name);
+        setResult(null);
+        setEvents([]);
+        setBatchItems([]);
+        setError(null);
+        setRunState("idle");
+      };
+      reader.readAsDataURL(file);
+    },
+    [abortStream],
+  );
+
+  const loadFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 1) {
+        loadSingle(files[0]);
+        return;
+      }
+      abortStream();
+      setMode("batch");
+      setImageBase64(null);
       setResult(null);
       setEvents([]);
       setError(null);
       setRunState("idle");
-    };
-    reader.readAsDataURL(file);
-  }, []);
-
-  const loadFiles = useCallback((files: File[]) => {
-    if (files.length === 1) {
-      loadSingle(files[0]);
-      return;
-    }
-    setMode("batch");
-    setImageBase64(null);
-    setResult(null);
-    setEvents([]);
-    setError(null);
-    setRunState("idle");
-    setBatchItems(files.map((file) => ({ name: file.name })));
-    for (const file of files) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const imageBase64 = (reader.result as string).split(",")[1];
-        setBatchItems((previous) =>
-          previous.map((item) => (item.name === file.name ? { ...item, imageBase64 } : item)),
-        );
-      };
-      reader.readAsDataURL(file);
-    }
-  }, [loadSingle]);
+      setBatchItems(files.map((file) => ({ id: crypto.randomUUID(), name: file.name })));
+      for (const file of files) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const imageBase64 = (reader.result as string).split(",")[1];
+          setBatchItems((previous) =>
+            previous.map((item) => (item.name === file.name ? { ...item, imageBase64 } : item)),
+          );
+        };
+        reader.readAsDataURL(file);
+      }
+    },
+    [abortStream, loadSingle],
+  );
 
   const runBatch = useCallback(async () => {
     const pending = batchItems.filter((item): item is BatchItem & { imageBase64: string } =>
@@ -91,17 +120,17 @@ export default function App() {
     setRunState("running");
     const outcome = await solveBatch(
       apiBase,
-      pending.map((item) => ({ name: item.name, imageBase64: item.imageBase64 })),
+      pending.map((item) => ({ id: item.id, imageBase64: item.imageBase64 })),
       asOverrides(),
     );
     if (outcome.ok && outcome.results) {
-      // the batch endpoint returns results in input order; pending preserves that order
-      const resultByName = new Map(
-        pending.map((item, index) => [item.name, outcome.results![index]]),
+      // the endpoint returns results in input order; pending preserves submission order
+      const resultById = new Map(
+        pending.map((item, index) => [item.id, outcome.results![index]]),
       );
       setBatchItems((previous) =>
         previous.map((item) =>
-          resultByName.has(item.name) ? { ...item, result: resultByName.get(item.name) } : item,
+          resultById.has(item.id) ? { ...item, result: resultById.get(item.id) } : item,
         ),
       );
       setRunState("done");
@@ -118,12 +147,13 @@ export default function App() {
     setError(null);
     setRunState("running");
 
-    const stopStream = followRun(apiBase, runId, (event) => {
+    abortStream();
+    stopStreamRef.current = followRun(apiBase, runId, (event) => {
       setEvents((previous) => [...previous, event]);
     });
 
     const outcome = await solveBlock(apiBase, imageBase64, runId, asOverrides());
-    stopStream();
+    abortStream();
     if (outcome.ok && outcome.result) {
       setResult(outcome.result);
       setRunState("done");
@@ -131,16 +161,37 @@ export default function App() {
       setError(outcome.error ?? "unknown error");
       setRunState("error");
     }
-  }, [imageBase64, fileName, asOverrides]);
+  }, [imageBase64, fileName, asOverrides, abortStream]);
+
+  const openBatchItem = useCallback(
+    (id: string) => {
+      const item = batchItems.find((candidate) => candidate.id === id);
+      if (!item?.imageBase64) return;
+      const dataUrl = `data:image/png;base64,${item.imageBase64}`;
+      abortStream();
+      setMode("single");
+      setImageBase64(item.imageBase64);
+      setImageUrl(dataUrl);
+      setFileName(item.name);
+      setResult(item.result ?? null);
+      setEvents([]);
+      setError(null);
+      setRunState(item.result ? "done" : "idle");
+    },
+    [batchItems, abortStream],
+  );
 
   const run = mode === "batch" ? runBatch : runSingle;
   const busy = runState === "running";
+  const hasContent = mode === "batch" ? batchItems.length > 0 : imageBase64 !== null;
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       setRunState("idle");
-      const files = Array.from(event.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+      const files = Array.from(event.dataTransfer.files).filter((f) =>
+        f.type.startsWith("image/"),
+      );
       if (files.length) loadFiles(files);
     },
     [loadFiles],
@@ -165,15 +216,27 @@ export default function App() {
             disabled={busy || (mode === "single" ? !imageBase64 : !batchItems.some((i) => i.imageBase64))}
             className="rounded bg-suspect px-4 py-1.5 text-sm font-medium text-bg disabled:opacity-40"
           >
-            {busy ? "Solving…" : mode === "batch" ? `Solve ${batchItems.filter((i) => i.imageBase64).length}` : "Solve"}
+            {busy
+              ? "Solving…"
+              : mode === "batch"
+                ? `Solve ${batchItems.filter((i) => i.imageBase64).length}`
+                : "Solve"}
           </button>
+          {hasContent && (
+            <button
+              onClick={resetToDropzone}
+              className="rounded bg-codebg px-3 py-1.5 font-mono text-xs text-muted hover:text-ink"
+            >
+              New
+            </button>
+          )}
         </div>
       </header>
 
       <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[28fr_40fr_32fr]">
         {mode === "batch" ? (
           <div className="lg:col-span-2">
-            <BatchView items={batchItems} onOpen={() => {}} />
+            <BatchView items={batchItems} onOpen={openBatchItem} />
           </div>
         ) : imageBase64 ? (
           <SourcePanel
@@ -191,28 +254,14 @@ export default function App() {
           />
         )}
 
-        {mode === "single" && (
-          <RetryLoopPanel events={events} running={busy} />
-        )}
+        {mode === "single" && <RetryLoopPanel events={events} running={busy} />}
 
-        {mode === "single" ? (
-          result ? (
-            <VerdictPanel result={result} />
-          ) : (
-            <section className="hidden rounded border border-edge bg-panel p-5 shadow-panel lg:block">
-              <h2 className="font-mono text-xs uppercase tracking-widest text-muted">Verdict</h2>
-              <div className="mt-4">
-                <SettingsPanel providers={providers} overrides={overrides} onChange={setOverrides} />
-              </div>
-            </section>
-          )
+        {mode === "single" && result ? (
+          <VerdictPanel result={result} />
         ) : (
-          <section className="rounded border border-edge bg-panel p-5 shadow-panel">
-            <h2 className="font-mono text-xs uppercase tracking-widest text-muted">Verdict</h2>
-            <div className="mt-4">
-              <SettingsPanel providers={providers} overrides={overrides} onChange={setOverrides} />
-            </div>
-          </section>
+          <PanelShell title="Verdict">
+            <SettingsPanel providers={providers} overrides={overrides} onChange={setOverrides} />
+          </PanelShell>
         )}
       </main>
 
@@ -234,6 +283,15 @@ export default function App() {
         onChange={(e) => e.target.files && loadFiles(Array.from(e.target.files))}
       />
     </div>
+  );
+}
+
+function PanelShell({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="hidden rounded border border-edge bg-panel p-5 shadow-panel lg:block">
+      <h2 className="font-mono text-xs uppercase tracking-widest text-muted">{title}</h2>
+      <div className="mt-4">{children}</div>
+    </section>
   );
 }
 
