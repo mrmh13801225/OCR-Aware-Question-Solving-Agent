@@ -35,7 +35,7 @@ def test_providers_command_lists_registered(base_url: str) -> None:
     assert "claude" in result.output
 
 
-def test_batch_command_writes_output_lines(tmp_path: Path, base_url: str) -> None:
+def test_batch_command_writes_output_lines_in_input_order(tmp_path: Path, base_url: str) -> None:
     for name in ("a.png", "b.png"):
         (tmp_path / name).write_bytes(b"fake-png-bytes")
     out_path = tmp_path / "out.jsonl"
@@ -44,9 +44,27 @@ def test_batch_command_writes_output_lines(tmp_path: Path, base_url: str) -> Non
         ["batch", str(tmp_path), "--out", str(out_path), "--base-url", base_url],
     )
     assert result.exit_code == 0
+    assert "a.png" in result.output and "b.png" in result.output
+    # JSONL mirrors the response order, which the batch call guarantees to
+    # match input order; the server-side insertion order (deterministic
+    # timestamps) must agree.
     lines = out_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 2
     assert all(json.loads(line)["answer"] for line in lines)
+    assert result.output.index("a.png") < result.output.index("b.png")
+
+
+def test_batch_without_out_flag_persists_server_side_only(tmp_path: Path, base_url: str) -> None:
+    import httpx
+
+    for name in ("a.png", "b.png"):
+        (tmp_path / name).write_bytes(b"fake-png-bytes")
+    result = runner.invoke(app, ["batch", str(tmp_path), "--base-url", base_url])
+    assert result.exit_code == 0
+    assert not list(tmp_path.rglob("*.jsonl"))  # no local artifact written
+    assert "saved server-side" in result.output
+    listing = httpx.get(f"{base_url}/api/v1/results", trust_env=False).json()
+    assert len(listing["results"]) == 2  # both persisted server-side
 
 
 def test_server_down_fails_fast_with_start_hint(tmp_path: Path) -> None:

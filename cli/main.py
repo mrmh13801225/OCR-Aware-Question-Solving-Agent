@@ -100,29 +100,35 @@ def solve(
 @app.command()
 def batch(
     directory: Path = typer.Argument(..., exists=True, file_okay=False),
-    out: Path = typer.Option("results/cli_batch.jsonl", "--out"),
+    out: Path = typer.Option(None, "--out", help="Optional local JSONL copy of the results."),
     base_url: str = typer.Option(DEFAULT_BASE_URL, "--base-url"),
 ) -> None:
-    """Solve every image in a directory; write one JSON line per result."""
+    """Solve every image in a directory with one batch call; the server persists results."""
     images = sorted(
         p for p in directory.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
     )
     if not images:
         _die(f"no images found in {directory}")
-    lines = []
+    blocks = [
+        {"image_base64": _encode_image(image_path), "run_id": f"cli-{image_path.stem}"}
+        for image_path in images
+    ]
     with http_client_for(base_url) as client:
-        for image_path in images:
-            payload = {
-                "image_base64": _encode_image(image_path),
-                "run_id": f"cli-{image_path.stem}",
-            }
-            lines.append(_post(client, "/api/v1/blocks/solve", payload))
-            console.print(f"[muted]{image_path.name} -> {lines[-1]['answer']}[/muted]")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        "\n".join(json.dumps(line, ensure_ascii=False) for line in lines) + "\n", encoding="utf-8"
-    )
-    console.print(f"[green]Wrote {len(lines)} results to {out}[/green]")
+        body = _post(client, "/api/v1/blocks/batch", {"blocks": blocks})
+    results = body["results"]
+    for image_path, result in zip(images, results, strict=True):
+        console.print(f"[muted]{image_path.name} -> {result['answer']}[/muted]")
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in results) + "\n",
+            encoding="utf-8",
+        )
+        console.print(f"[green]Wrote {len(results)} results to {out}[/green]")
+    else:
+        console.print(
+            f"[green]{len(results)} results saved server-side (GET /api/v1/results)[/green]"
+        )
 
 
 @app.command()
