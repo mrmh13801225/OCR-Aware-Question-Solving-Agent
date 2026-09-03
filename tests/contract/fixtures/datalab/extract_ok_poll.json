@@ -1,0 +1,33 @@
+{
+  "request_id": "req-fixture-1",
+  "status": "complete",
+  "success": true,
+  "error": null,
+  "pages": [
+    {
+      "page": 1,
+      "text_lines": [
+        {
+          "text": "کدام گزینه درست است؟",
+          "confidence": 0.99
+        },
+        {
+          "text": "۱) تهران",
+          "confidence": 0.98
+        },
+        {
+          "text": "۲) مشهد",
+          "confidence": 0.98
+        },
+        {
+          "text": "۳) اصفهان",
+          "confidence": 0.97
+        },
+        {
+          "text": "۴) تبریز",
+          "confidence": 0.98
+        }
+      ]
+    }
+  ]
+}

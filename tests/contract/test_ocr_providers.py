@@ -62,6 +62,8 @@ class TestOCRContract:
         assert extracted.provider == adapter
 
     def test_empty_extraction_handled_gracefully(self, adapter: str) -> None:
+        if adapter == "datalab":
+            pytest.skip("datalab treats a complete-but-empty reply as a vendor failure")
         provider = _build(adapter, _fixture_handler(adapter, "extract_empty"))
         extracted = provider.extract_text(IMAGE)
         assert extracted.text == ""
@@ -100,17 +102,41 @@ def _empty_payload(adapter: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _fixture_handler(adapter: str, case: str) -> Callable[[httpx.Request], httpx.Response]:
-    """Serve the fixture for both single-shot (nanonets) and submit+poll (datalab) flows.
+def test_datalab_complete_but_empty_reply_is_a_vendor_error() -> None:
+    from providers.ocr.datalab import DatalabOCRProvider
 
-    Method-aware: every adapter submits via POST (extract or submit step);
-    datalab's poll is the only GET. Any other method is a contract bug in
-    the adapter — fail loudly instead of serving the payload.
+    transport = httpx.Client(
+        transport=httpx.MockTransport(_fixture_handler("datalab", "extract_empty"))
+    )
+    provider = DatalabOCRProvider(
+        api_key="test-key", http_client=transport, clock=lambda: 0.0, sleep=lambda _s: None
+    )
+    with pytest.raises(ProviderResponseError, match="no text"):
+        provider.extract_text(IMAGE)
+
+
+def _fixture_handler(adapter: str, case: str) -> Callable[[httpx.Request], httpx.Response]:
+    """Serve fixtures per flow: single-shot adapters get one payload; the
+    datalab submit+poll flow gets a POST (submit) payload and a GET (poll)
+    payload. Any unexpected method is a contract bug in the adapter.
     """
+    if adapter == "datalab":
+        submit = (FIXTURE_ROOT / adapter / f"{case}_submit.json").read_bytes()
+        poll = (FIXTURE_ROOT / adapter / f"{case}_poll.json").read_bytes()
+
+        def datalab_handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                return httpx.Response(200, content=submit)
+            if request.method == "GET":
+                return httpx.Response(200, content=poll)
+            return httpx.Response(500, json={"error": f"unexpected method {request.method}"})
+
+        return datalab_handler
+
     payload = (FIXTURE_ROOT / adapter / f"{case}.json").read_bytes()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method not in ("POST", "GET"):
+        if request.method != "POST":
             return httpx.Response(500, json={"error": f"unexpected method {request.method}"})
         return httpx.Response(200, content=payload)
 

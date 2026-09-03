@@ -44,3 +44,21 @@ def correct_user_text(question_text: str, option_lines: str, failed_answer: str)
         "none of the options — evidence the text is misread. Correct it minimally.\n\n"
         f"OCR text (may be wrong):\n{question_text}\n\nOptions:\n{option_lines}"
     )
+
+
+_TRANSCRIBE_SYSTEM = (
+    "You transcribe Persian multiple-choice exam scans. Output ONLY a JSON object: "
+    '{"question_text": "...", "options": [{"label": "A", "text": "..."}, ...]} '
+    "with labels A, B, C, D in reading order. Transcribe exactly what the scan shows; "
+    "if an option is math typeset, reproduce it verbatim in the text field."
+)
+
+_TRANSCRIBE_USER = "Transcribe this question block from the image."
+
+
+def transcribe_system_prompt() -> str:
+    return _TRANSCRIBE_SYSTEM
+
+
+def transcribe_user_text() -> str:
+    return _TRANSCRIBE_USER

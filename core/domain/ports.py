@@ -29,6 +29,11 @@ class ReasoningProvider(Protocol):
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock: ...
 
+    def transcribe(self, image: bytes) -> ParsedBlock:
+        """Re-read the image and return a parseable block; used when OCR text
+        is so broken the parser rejects it outright."""
+        ...
+
 
 class ResultRepository(Protocol):
     """Flat-JSON persistence of per-block results."""

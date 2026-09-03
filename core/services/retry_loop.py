@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from core.domain.errors import ParseError
 from core.domain.models import AnswerMapping, BlockResult, ParsedBlock, RunState, SolveAttempt
 from core.domain.ports import (
     OCRProvider,
@@ -37,7 +38,22 @@ class RetryLoop:
         if extracted is None:
             extracted = self.ocr.extract_text(image)
         original_ocr_text = extracted.text
-        block = parse(original_ocr_text)
+
+        try:
+            block = parse(original_ocr_text)
+        except ParseError:
+            recovered = self._recover_unparseable_ocr(image)
+            if recovered is None:
+                self._emit("UNRESOLVED", self.retry_cap, "no parseable transcription")
+                return BlockResult(
+                    answer="",
+                    question_text=original_ocr_text,
+                    changed=True,
+                    original_ocr_text=original_ocr_text,
+                    unresolved=True,
+                    attempts=self.retry_cap + 1,
+                )
+            block = recovered
 
         if self.injector is not None:
             block = self.injector.corrupt(block)
@@ -57,6 +73,22 @@ class RetryLoop:
                 block = self.reasoning.correct(image, block, attempt.raw_answer)
 
         return self._unresolved(attempts, block, original_ocr_text)
+
+    def _recover_unparseable_ocr(self, image: bytes) -> ParsedBlock | None:
+        """The brief's re-read-the-image remedy, applied to total parse failure:
+        the OCR text could not be split into a question and options at all, so
+        ask the vision model to transcribe the block from the image. If every
+        transcription still fails to parse, return None — the caller surfaces
+        an unresolved result rather than a crash.
+        """
+        for attempts in range(self.retry_cap + 1):
+            self._emit("PARSE", attempts, "ocr text unparseable; re-reading the image")
+            block = self.reasoning.transcribe(image)
+            try:
+                return parse(block.raw_text)
+            except ParseError:
+                continue
+        return None
 
     def _done(
         self, attempt: SolveAttempt, block: ParsedBlock, count: int, original_ocr_text: str

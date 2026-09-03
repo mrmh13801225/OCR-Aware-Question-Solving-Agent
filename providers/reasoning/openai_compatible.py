@@ -12,16 +12,21 @@ import httpx
 from core.domain.errors import ProviderResponseError
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import ReasoningProvider
-from providers.http import call_vendor, json_field, raise_for_status
+from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
 from providers.reasoning.prompts import (
     correct_system_prompt,
     correct_user_text,
     solve_system_prompt,
     solve_user_text,
+    transcribe_system_prompt,
+    transcribe_user_text,
 )
 from providers.reasoning.replies import parse_correction_reply
 
-MAX_TOKENS = 1024
+# Reasoning models (GLM, DeepSeek-R1 class) spend hundreds of tokens in
+# reasoning_content before emitting content; a tight budget starves the
+# visible answer to empty. 4096 leaves room for reasoning plus the reply.
+MAX_TOKENS = 4096
 
 
 class OpenAICompatibleReasoningProvider(ReasoningProvider):
@@ -43,7 +48,9 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         self._client = http_client or httpx.Client(
             base_url=self._base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=60.0,
+            timeout=600.0,  # measured: reasoning models on image+correction can take ~7 minutes
+            # local gateways must bypass the proxy; external vendors need it
+            trust_env=trust_env_for(self._base_url),
         )
 
     def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
@@ -66,8 +73,43 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
             },
             self._image_part(image),
         ]
-        reply = self._chat(correct_system_prompt(), content)
-        return parse_correction_reply(reply, block, provider="openai_compatible")
+        return self._block_from_chat(
+            correct_system_prompt(), content, block, provider="openai_compatible"
+        )
+
+    def transcribe(self, image: bytes) -> ParsedBlock:
+        """Re-read the image from scratch: OCR failed to parse, so the model
+        produces a fresh transcription the parser can accept."""
+        content = [
+            {"type": "text", "text": transcribe_user_text()},
+            self._image_part(image),
+        ]
+        empty = ParsedBlock(question_text="", options=[], raw_text="")
+        return self._block_from_chat(
+            transcribe_system_prompt(), content, empty, provider="openai_compatible", strict=False
+        )
+
+    def _block_from_chat(
+        self,
+        system: str,
+        content: list[dict],
+        original: ParsedBlock,
+        provider: str,
+        strict: bool = True,
+    ) -> ParsedBlock:
+        """Chat → JSON block, with one re-ask when the model replies without
+        JSON (reasoning models occasionally answer conversationally)."""
+        reply = self._chat(system, content)
+        try:
+            return parse_correction_reply(reply, original, provider=provider, strict=strict)
+        except ProviderResponseError:
+            nudge = dict(content[0])
+            nudge["text"] = (
+                f"{content[0]['text']}\n\nYour previous reply was not a JSON object. "
+                "Respond with ONLY the JSON object, nothing else."
+            )
+            reply = self._chat(system, [nudge, *content[1:]])
+            return parse_correction_reply(reply, original, provider=provider, strict=strict)
 
     def _image_part(self, image: bytes) -> dict:
         return {

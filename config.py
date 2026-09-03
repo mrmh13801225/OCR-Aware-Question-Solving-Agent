@@ -64,6 +64,11 @@ class FakeReasoningProvider:
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
         return block
 
+    def transcribe(self, image: bytes) -> ParsedBlock:
+        # deliberately unparseable: a fake transcription forces the loop's
+        # recovery path to exhaust, exercising the unresolved outcome
+        return ParsedBlock(question_text="", options=[], raw_text="")
+
 
 OCR_PROVIDER_REGISTRY: dict[str, type[OCRProvider]] = {
     "datalab": DatalabOCRProvider,

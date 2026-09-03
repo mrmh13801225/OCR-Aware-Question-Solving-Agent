@@ -137,3 +137,22 @@ async def test_result_persisted_to_json_repository(client, tmp_path) -> None:
     await client.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
     repo = JSONFileResultRepository(results_dir=tmp_path / "results")
     assert len(repo.list()) == 1
+
+
+async def test_provider_errors_become_502_not_500(client, monkeypatch) -> None:
+    """A vendor failure inside the loop must surface as a clean 502 with the
+    provider error's message, never an unhandled 500."""
+    from core.domain.errors import ProviderTimeoutError
+
+    class ExplodingLoop:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def solve_block(self, image: bytes, extracted=None):
+            raise ProviderTimeoutError("timed out", provider="openai_compatible")
+
+    monkeypatch.setattr("api.routes.blocks.RetryLoop", ExplodingLoop)
+    response = await client.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
+    assert response.status_code == 502
+    assert "timed out" in response.text
+    assert "openai_compatible" in response.text

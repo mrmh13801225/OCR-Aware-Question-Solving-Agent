@@ -21,7 +21,9 @@ DELIVERABLE_FIELDS = ("answer", "question_text", "changed", "original_ocr_text")
 
 
 def run(samples_dir: Path, out_path: Path, base_url: str) -> None:
-    client = httpx.Client(base_url=base_url, timeout=300.0, trust_env=False)
+    # generous client timeout: a correction call against a slow reasoning
+    # gateway measured at ~7 minutes server-side
+    client = httpx.Client(base_url=base_url, timeout=900.0, trust_env=False)
     _require_server(client)
 
     images = sorted(

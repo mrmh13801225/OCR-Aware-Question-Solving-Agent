@@ -32,7 +32,7 @@ def http_client_for(base_url: str) -> httpx.Client:
     # trust_env=False: the API is local; a system HTTP proxy must never
     # intercept these requests (a proxy answering 503 would masquerade as
     # a reachable server).
-    return httpx.Client(base_url=base_url, timeout=300.0, trust_env=False)
+    return httpx.Client(base_url=base_url, timeout=900.0, trust_env=False)
 
 
 def _die(message: str) -> None:
@@ -165,8 +165,12 @@ def batch(
         console.print(f"[muted]{image_path.name} -> {result['answer']}[/muted]")
     if out is not None:
         out.parent.mkdir(parents=True, exist_ok=True)
+        # the local artifact matches the brief's deliverable schema exactly,
+        # not the fuller API response
+        deliverable_fields = ("answer", "question_text", "changed", "original_ocr_text")
+        projected = [{field: r[field] for field in deliverable_fields} for r in results]
         out.write_text(
-            "\n".join(json.dumps(r, ensure_ascii=False) for r in results) + "\n",
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in projected) + "\n",
             encoding="utf-8",
         )
         console.print(f"[green]Wrote {len(results)} results to {out}[/green]")

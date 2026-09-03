@@ -18,6 +18,8 @@ from providers.reasoning.prompts import (
     correct_user_text,
     solve_system_prompt,
     solve_user_text,
+    transcribe_system_prompt,
+    transcribe_user_text,
 )
 from providers.reasoning.replies import parse_correction_reply
 
@@ -61,12 +63,36 @@ class ClaudeReasoningProvider(ReasoningProvider):
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
         option_lines = "\n".join(f"{o.label}) {o.text}" for o in block.options)
-        payload = self._complete(
-            correct_system_prompt(),
-            correct_user_text(block.question_text, option_lines, failed_answer),
-            image,
-        )
-        return parse_correction_reply(payload, block, provider="claude")
+        system = correct_system_prompt()
+        user_text = correct_user_text(block.question_text, option_lines, failed_answer)
+        payload = self._complete(system, user_text, image)
+        try:
+            return parse_correction_reply(payload, block, provider="claude")
+        except ProviderResponseError:
+            payload = self._complete(
+                system,
+                user_text + "\n\nYour previous reply was not a JSON object. "
+                "Respond with ONLY the JSON object, nothing else.",
+                image,
+            )
+            return parse_correction_reply(payload, block, provider="claude")
+
+    def transcribe(self, image: bytes) -> ParsedBlock:
+        """Re-read the image from scratch: OCR failed to parse, so the model
+        produces a fresh transcription the parser can accept."""
+        system = transcribe_system_prompt()
+        payload = self._complete(system, transcribe_user_text(), image)
+        empty = ParsedBlock(question_text="", options=[], raw_text="")
+        try:
+            return parse_correction_reply(payload, empty, provider="claude", strict=False)
+        except ProviderResponseError:
+            payload = self._complete(
+                system,
+                transcribe_user_text() + "\n\nYour previous reply was not a JSON object. "
+                "Respond with ONLY the JSON object, nothing else.",
+                image,
+            )
+            return parse_correction_reply(payload, empty, provider="claude", strict=False)
 
     def _complete(self, system: str, user_text: str, image: bytes) -> str:
         try:

@@ -33,8 +33,10 @@ class ScriptedReasoning:
 
     answers: list[str]
     corrections: list[ParsedBlock] = field(default_factory=list)
+    transcriptions: list[ParsedBlock] = field(default_factory=list)
     solve_calls: int = 0
     correct_calls: int = 0
+    transcribe_calls: int = 0
     seen_images: list[bytes] = field(default_factory=list)
     seen_questions: list[str] = field(default_factory=list)
     seen_failed: list[str] = field(default_factory=list)
@@ -54,6 +56,12 @@ class ScriptedReasoning:
         if self.corrections:
             return self.corrections[min(self.correct_calls - 1, len(self.corrections) - 1)]
         return block
+
+    def transcribe(self, image: bytes) -> ParsedBlock:
+        self.transcribe_calls += 1
+        if self.transcriptions:
+            return self.transcriptions[min(self.transcribe_calls - 1, len(self.transcriptions) - 1)]
+        raise AssertionError("no scripted transcription for this call")
 
 
 @dataclass
@@ -255,3 +263,41 @@ def test_pre_parsed_ocr_text_skips_ocr_call_but_keeps_the_loop() -> None:
     assert result.original_ocr_text == RAW_TEXT
     states = [e.run_state for e in listener.events]
     assert states == ["SOLVE", "VERIFY", "CORRECT", "SOLVE", "VERIFY", "DONE"]
+
+
+def test_parse_failure_asks_reasoning_to_reread_the_image() -> None:
+    # Live-pass regression: some scans (math-typeset options) yield OCR text the
+    # parser rejects outright. The brief's remedy — re-read the image — applies
+    # to total parse failure too: the loop must ask the reasoning provider for
+    # a corrected block and continue, instead of crashing.
+    ocr = FakeOCR(text="garbage without any options")
+
+    class TranscribingReasoning(ScriptedReasoning):
+        def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
+            raise AssertionError("correct() is not the entry point for parse failure")
+
+    corrected_raw = "کدام شهر؟\n۱) تهران\n۲) مشهد\n۳) اصفهان\n۴) تبریز"
+    corrected = ParsedBlock(question_text="کدام شهر؟", options=OPTIONS, raw_text=corrected_raw)
+    reasoning = TranscribingReasoning(answers=["C"])
+    reasoning.transcriptions = [corrected]
+
+    loop, listener = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.answer == "C"
+    assert result.question_text == "کدام شهر؟"
+    assert result.original_ocr_text == "garbage without any options"
+    assert result.changed is False  # no correction pass occurred; OCR was unreadable
+    states = [e.run_state for e in listener.events]
+    assert states[0] == "PARSE"  # parse failure surfaced as an event
+    assert states.count("SOLVE") == 1
+
+
+def test_parse_failure_exhausting_the_cap_returns_unresolved() -> None:
+    ocr = FakeOCR(text="garbage without any options")
+    corrected_bad = ParsedBlock(question_text="still garbage", options=OPTIONS, raw_text="x")
+    reasoning = ScriptedReasoning(answers=["Z"])
+    reasoning.transcriptions = [corrected_bad, corrected_bad]
+    loop, _ = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.unresolved is True
+    assert result.attempts == 3  # cap respected even in the parse-recovery path

@@ -87,3 +87,19 @@ def test_server_down_fails_fast_with_start_hint(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "uvicorn" in result.output.lower()
+
+
+def test_batch_out_file_contains_only_deliverable_fields(tmp_path: Path, base_url: str) -> None:
+    """The CLI --out artifact must match the brief's 4-field schema, not the
+    full API response (extra fields would fail the graded schema)."""
+    for name in ("a.png", "b.png"):
+        (tmp_path / name).write_bytes(b"fake-png-bytes")
+    out_path = tmp_path / "out.jsonl"
+    result = runner.invoke(
+        app,
+        ["batch", str(tmp_path), "--out", str(out_path), "--base-url", base_url],
+    )
+    assert result.exit_code == 0
+    for line in out_path.read_text(encoding="utf-8").strip().splitlines():
+        payload = json.loads(line)
+        assert set(payload) == {"answer", "question_text", "changed", "original_ocr_text"}

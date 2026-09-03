@@ -6,14 +6,14 @@ import httpx
 
 from core.domain.errors import ProviderResponseError
 from core.domain.ports import OCRProvider, OCRText
-from providers.http import call_vendor, json_field, raise_for_status
+from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
 
 EXTRACT_SYSTEM = (
     "You transcribe Persian exam scans verbatim. Output ONLY the text visible "
     "in the image: the question and its numbered options, one per line, "
     "exactly as printed. No commentary, no translation, no markdown."
 )
-MAX_TOKENS = 2048
+MAX_TOKENS = 4096
 
 
 class LocalVLMOCRProvider(OCRProvider):
@@ -33,7 +33,10 @@ class LocalVLMOCRProvider(OCRProvider):
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
-        self._client = http_client or httpx.Client(timeout=120.0)
+        self._client = http_client or httpx.Client(
+            timeout=600.0,  # transcription of a full scan page is the heaviest call
+            trust_env=trust_env_for(self._base_url),  # local gateways bypass the proxy
+        )
 
     def extract_text(self, image: bytes) -> OCRText:
         response = call_vendor(

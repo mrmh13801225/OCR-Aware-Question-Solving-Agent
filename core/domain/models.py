@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 AnswerMapping = Literal["trust_model", "labels_then_position"]
-RunState = Literal["SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED"]
+RunState = Literal["SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED", "PARSE"]
 
 
 @dataclass(frozen=True)
