@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     datalab_api_key: str = ""
     local_vlm_base_url: str = "http://localhost:8000/v1"
     local_vlm_model: str = "qwen2.5-vl-7b-instruct"
+    local_vlm_api_key: str = ""  # only for gated local servers (vLLM --api-key, LM Studio)
 
     anthropic_api_key: str = ""
     openai_compat_base_url: str = ""
@@ -97,7 +98,9 @@ def build_ocr_provider(name: str, settings: Settings) -> OCRProvider:
         return DatalabOCRProvider(api_key=settings.datalab_api_key)
     if name == "local_vlm":
         return LocalVLMOCRProvider(
-            base_url=settings.local_vlm_base_url, model=settings.local_vlm_model
+            base_url=settings.local_vlm_base_url,
+            model=settings.local_vlm_model,
+            api_key=settings.local_vlm_api_key,
         )
     return OCR_PROVIDER_REGISTRY[name]()
 

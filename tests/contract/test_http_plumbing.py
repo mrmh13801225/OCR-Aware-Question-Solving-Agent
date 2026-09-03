@@ -85,3 +85,39 @@ def test_call_vendor_does_not_retry_http_responses() -> None:
     response = call_vendor("test", flaky)
     assert response.status_code == 401
     assert len(calls) == 1
+
+
+def test_local_vlm_sends_bearer_token_when_key_given() -> None:
+    """vLLM --api-key and LM Studio gate local models behind a Bearer token;
+    Ollama ignores it, so the header is present only when a key is set."""
+    from providers.ocr.local_vlm import LocalVLMOCRProvider
+
+    seen: dict[str, httpx.Request] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["req"] = request
+        return httpx.Response(200, json={"choices": [{"message": {"content": "text"}}]})
+
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = LocalVLMOCRProvider(
+        base_url="http://test.local/v1", model="m", api_key="secret", http_client=transport
+    )
+    provider.extract_text(b"img")
+    assert seen["req"].headers.get("Authorization") == "Bearer secret"
+
+
+def test_local_vlm_omits_auth_header_without_key() -> None:
+    from providers.ocr.local_vlm import LocalVLMOCRProvider
+
+    seen: dict[str, httpx.Request] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["req"] = request
+        return httpx.Response(200, json={"choices": [{"message": {"content": "text"}}]})
+
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = LocalVLMOCRProvider(
+        base_url="http://test.local/v1", model="m", http_client=transport
+    )
+    provider.extract_text(b"img")
+    assert "Authorization" not in seen["req"].headers

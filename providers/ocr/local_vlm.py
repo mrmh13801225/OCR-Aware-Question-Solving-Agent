@@ -30,9 +30,15 @@ class LocalVLMOCRProvider(OCRProvider):
         base_url: str,
         model: str,
         http_client: httpx.Client | None = None,
+        api_key: str = "",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        # vLLM --api-key and LM Studio gate local models behind a Bearer
+        # token; bare Ollama ignores the header entirely, so sending it
+        # unconditionally is also safe. Per-request, not client-level: an
+        # injected test client must see the header too.
+        self._auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = http_client or httpx.Client(
             timeout=600.0,  # transcription of a full scan page is the heaviest call
             trust_env=trust_env_for(self._base_url),  # local gateways bypass the proxy
@@ -43,6 +49,7 @@ class LocalVLMOCRProvider(OCRProvider):
             "local_vlm",
             lambda: self._client.post(
                 f"{self._base_url}/chat/completions",
+                headers=self._auth_headers,
                 json={
                     "model": self._model,
                     "max_tokens": MAX_TOKENS,
