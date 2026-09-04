@@ -1,0 +1,17 @@
+{
+  "id": "msg_fixture_tr",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"question_text\": \"کدام شهر پایتخت ایران است؟\", \"options\": [{\"label\": \"A\", \"text\": \"تهران\"}, {\"label\": \"B\", \"text\": \"مشهد\"}, {\"label\": \"C\", \"text\": \"اصفهان\"}, {\"label\": \"D\", \"text\": \"تبریز\"}]}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 40
+  }
+}

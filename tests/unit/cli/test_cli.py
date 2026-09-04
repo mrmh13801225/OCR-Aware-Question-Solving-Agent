@@ -21,11 +21,14 @@ def test_solve_command_prints_answer_and_changed(tmp_path: Path, base_url: str) 
     assert "A" in result.output  # fake provider picks option 1
 
 
-def test_solve_command_sends_image_bytes(tmp_path: Path, base_url: str) -> None:
+def test_solve_command_sends_image_bytes(tmp_path: Path, base_url: str, request_log) -> None:
     image_path = tmp_path / "block.png"
     image_path.write_bytes(b"fake-png-bytes")
     result = runner.invoke(app, ["solve", str(image_path), "--base-url", base_url])
     assert result.exit_code == 0
+    assert len(request_log.solve_bodies) == 1
+    sent = base64.b64decode(request_log.solve_bodies[0]["image_base64"])
+    assert sent == b"fake-png-bytes"  # the exact file bytes reach the wire
 
 
 def test_solve_trace_flag_streams_events(tmp_path: Path, base_url: str) -> None:
@@ -43,6 +46,24 @@ def test_providers_command_lists_registered(base_url: str) -> None:
     assert result.exit_code == 0
     assert "nanonets" in result.output
     assert "claude" in result.output
+
+
+def test_batch_command_sends_one_batch_call_in_input_order(
+    tmp_path: Path, base_url: str, request_log
+) -> None:
+    """TESTING.md §4.5: batch is ONE POST /blocks/batch carrying every image,
+    with the server's input-order guarantee exercised on the wire payload."""
+    for name in ("a.png", "b.png"):
+        (tmp_path / name).write_bytes(b"fake-png-bytes")
+    out_path = tmp_path / "out.jsonl"
+    result = runner.invoke(
+        app,
+        ["batch", str(tmp_path), "--out", str(out_path), "--base-url", base_url],
+    )
+    assert result.exit_code == 0
+    assert request_log.batch_calls == 1
+    sent_run_ids = [block["run_id"] for block in request_log.batch_payloads[0]]
+    assert sent_run_ids == ["cli-a", "cli-b"]  # sorted input order travels in one call
 
 
 def test_batch_command_writes_output_lines_in_input_order(tmp_path: Path, base_url: str) -> None:

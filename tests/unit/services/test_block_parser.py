@@ -10,6 +10,7 @@ LATIN = "Which option is correct?\n1) alpha\n2) beta\n3) gamma\n4) delta"
 PERSIAN_DIGITS = "در تصویر مقابل کدام است؟\n۱) الف\n۲) ب\n۳) ج\n۴) د"
 ARABIC_DIGITS = "السؤال هنا؟\n١) أ\n٢) ب\n٣) ج\n٤) د"
 DOT_NUMBERED = "کدام گزینه درست است؟\n1. الف\n2. ب\n3. ج\n4. د"
+PERSIAN_DOT_NUMBERED = "کدام گزینه درست است؟\n۱. الف\n۲. ب\n۳. ج\n۴. د"
 PERSIAN_LETTERS = "نتیجه کدام است؟\nالف) یکی\nب) دو\nج) سه\nد) چهار"
 RTL_PAREN = "پرسش این است؟\n(۱ یکی\n(۲ دو\n(۳ سه\n(۴ چهار"
 
@@ -45,6 +46,13 @@ def test_parses_arabic_digit_labels() -> None:
 
 def test_parses_dot_numbered_options() -> None:
     block = parse(DOT_NUMBERED)
+    assert _labels(block) == ["A", "B", "C", "D"]
+    assert _texts(block) == ["الف", "ب", "ج", "د"]
+
+
+def test_parses_persian_dot_numbered_options() -> None:
+    # TESTING.md §0.5: the ۱. (Persian digit + dot) variant the scans print.
+    block = parse(PERSIAN_DOT_NUMBERED)
     assert _labels(block) == ["A", "B", "C", "D"]
     assert _texts(block) == ["الف", "ب", "ج", "د"]
 
@@ -103,8 +111,10 @@ def test_empty_text_raises_parse_error() -> None:
 
 
 def test_no_options_raises_parse_error() -> None:
-    with pytest.raises(ParseError):
-        parse("فقط یک سؤال بدون گزینه")
+    raw = "فقط یک سؤال بدون گزینه"
+    with pytest.raises(ParseError) as err:
+        parse(raw)
+    assert err.value.raw_text == raw  # the offending text travels with the error
 
 
 def test_too_many_options_raises_parse_error_carrying_raw_text() -> None:

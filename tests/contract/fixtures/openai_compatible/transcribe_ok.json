@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-fixture-tr",
+  "object": "chat.completion",
+  "created": 0,
+  "model": "test-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"question_text\": \"کدام شهر پایتخت ایران است؟\", \"options\": [{\"label\": \"A\", \"text\": \"تهران\"}, {\"label\": \"B\", \"text\": \"مشهد\"}, {\"label\": \"C\", \"text\": \"اصفهان\"}, {\"label\": \"D\", \"text\": \"تبریز\"}]}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 40,
+    "total_tokens": 140
+  }
+}

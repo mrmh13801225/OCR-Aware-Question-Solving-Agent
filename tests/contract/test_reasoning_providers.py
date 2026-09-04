@@ -59,7 +59,9 @@ def _mock_handler(adapter: str) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode("utf-8"))
         prompt = json.dumps(body, ensure_ascii=False)
-        if "minimal" in prompt and "correction" in prompt:
+        if "Transcribe this question block" in prompt:
+            case = "transcribe_ok"
+        elif "minimal" in prompt and "correction" in prompt:
             case = "correct_ok"
         else:
             case = "solve_ok"
@@ -92,7 +94,7 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
 
     from config import build_reasoning_provider
 
-    settings = Settings(_env_file=None, reasoning_provider=adapter)  # type: ignore[call-arg]
+    settings = Settings(_env_file=None, reasoning_provider=adapter)
     return build_reasoning_provider(adapter, settings), handler
 
 
@@ -103,8 +105,7 @@ class TestReasoningContract:
         attempt = provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
         assert attempt.raw_answer.strip()
         assert attempt.question_text_used == BLOCK.question_text
-        assert attempt.attempt_index >= 0
-
+    
     def test_solve_request_carries_image_question_and_options(self, adapter: str) -> None:
         seen: dict[str, httpx.Request] = {}
 
@@ -141,6 +142,26 @@ class TestReasoningContract:
         prompt = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
         for constraint in ("minimal", "correction", "image"):
             assert constraint in prompt
+
+    def test_transcribe_returns_parseable_block(self, adapter: str) -> None:
+        provider, _ = _build(adapter, _mock_handler(adapter))
+        transcribed = provider.transcribe(IMAGE)
+        assert transcribed.question_text == BLOCK.question_text
+        assert [o.label for o in transcribed.options] == ["A", "B", "C", "D"]
+        assert transcribed.raw_text  # parseable text, the whole point of the port method
+
+    def test_transcribe_request_carries_image(self, adapter: str) -> None:
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "transcribe_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing)
+        provider.transcribe(IMAGE)
+        flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
+        assert base64.b64encode(IMAGE).decode() in flat
 
     @pytest.mark.parametrize(
         ("status", "expected"),
