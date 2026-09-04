@@ -1,4 +1,4 @@
-import { verdictOf } from "./VerdictPanel";
+import { verdictColor, verdictOf } from "./VerdictPanel";
 import type { BlockResult } from "../api";
 
 export interface BatchItem {
@@ -47,12 +47,7 @@ function BatchCard({ item, onOpen }: { item: BatchItem; onOpen: (id: string) => 
     );
   }
   const verdict = verdictOf(item.result);
-  const color =
-    verdict === "UNCHANGED"
-      ? "text-verified"
-      : verdict === "CHANGED"
-        ? "text-proof"
-        : "text-suspect";
+  const color = verdictColor(verdict);
   return (
     <div
       onClick={() => onOpen(item.id)}
@@ -66,7 +61,9 @@ function BatchCard({ item, onOpen }: { item: BatchItem; onOpen: (id: string) => 
         <span className={`text-2xl font-bold ${color}`}>{item.result.answer}</span>
         <span className={`font-mono text-[10px] tracking-widest ${color}`}>{verdict}</span>
       </div>
-      <p className="mt-1 font-mono text-[10px] text-muted">{item.result.attempts} attempts</p>
+      <p className="mt-1 font-mono text-[10px] text-muted">
+        {item.result.attempts} {item.result.attempts === 1 ? "attempt" : "attempts"}
+      </p>
     </div>
   );
 }

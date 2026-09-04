@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  base64FromDataUrl,
   fetchProviders,
   solveBatch,
   solveBlock,
@@ -7,6 +8,7 @@ import {
   type ProviderInfo,
 } from "./api";
 import { followRun, randomRunId } from "./runStream";
+import { NON_ATTEMPT_INDEX, RUN_STATE } from "./runStates";
 import type { TimedRunEvent } from "./components/RetryLoopPanel";
 import { BatchView, type BatchItem } from "./components/BatchView";
 import { RetryLoopPanel } from "./components/RetryLoopPanel";
@@ -36,7 +38,6 @@ export default function App() {
 
   useEffect(() => {
     fetchProviders(apiBase).then(setProviders);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const abortStream = useCallback(() => {
@@ -71,7 +72,7 @@ export default function App() {
       reader.onload = () => {
         abortStream();
         setMode("single");
-        setImageBase64((reader.result as string).split(",")[1]);
+        setImageBase64(base64FromDataUrl(reader.result as string));
         setImageUrl(reader.result as string);
         setFileName(file.name);
         setResult(null);
@@ -98,13 +99,16 @@ export default function App() {
       setEvents([]);
       setError(null);
       setRunState("idle");
-      setBatchItems(files.map((file) => ({ id: crypto.randomUUID(), name: file.name })));
-      for (const file of files) {
+      const items = files.map((file) => ({ id: crypto.randomUUID(), name: file.name }));
+      setBatchItems(items);
+      for (const [file, item] of files.map((file, index) => [file, items[index]] as const)) {
         const reader = new FileReader();
         reader.onload = () => {
-          const imageBase64 = (reader.result as string).split(",")[1];
+          const imageBase64 = base64FromDataUrl(reader.result as string);
           setBatchItems((previous) =>
-            previous.map((item) => (item.name === file.name ? { ...item, imageBase64 } : item)),
+            previous.map((existing) =>
+              existing.id === item.id ? { ...existing, imageBase64 } : existing,
+            ),
           );
         };
         reader.readAsDataURL(file);
@@ -147,8 +151,8 @@ export default function App() {
     const startedAt = Date.now();
     // The OCR pass ran server-side; the chip marks step zero in the rail.
     const ocrChip: TimedRunEvent = {
-      run_state: "OCR",
-      attempt_index: -1,
+      run_state: RUN_STATE.OCR,
+      attempt_index: NON_ATTEMPT_INDEX,
       detail: fileName,
       arrivedAt: startedAt,
     };
@@ -193,13 +197,7 @@ export default function App() {
   const run = mode === "batch" ? runBatch : runSingle;
   const busy = runState === "running";
   const hasContent = mode === "batch" ? batchItems.length > 0 : imageBase64 !== null;
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  useEffect(() => {
-    if (!busy) return;
-    setElapsedSeconds(0);
-    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-    return () => clearInterval(interval);
-  }, [busy]);
+  const elapsedSeconds = useElapsedSeconds(busy);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
@@ -335,6 +333,18 @@ function PanelShell({ title, children }: { title: string; children: React.ReactN
       <div className="mt-4">{children}</div>
     </section>
   );
+}
+
+/** Seconds since `active` became true, ticking once a second; resets when inactive. */
+function useElapsedSeconds(active: boolean): number {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    setElapsedSeconds(0);
+    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [active]);
+  return elapsedSeconds;
 }
 
 function DropZone({

@@ -7,11 +7,31 @@ export function verdictOf(result: BlockResult): Verdict {
   return result.changed ? "CHANGED" : "UNCHANGED";
 }
 
-const VERDICT_STYLES: Record<Verdict, { stamp: string; ring: string; dot: string }> = {
-  UNCHANGED: { stamp: "text-verified border-verified", ring: "border-verified", dot: "bg-verified" },
-  CHANGED: { stamp: "text-proof border-proof", ring: "border-proof", dot: "bg-proof" },
-  UNRESOLVED: { stamp: "text-suspect border-suspect", ring: "border-suspect", dot: "bg-suspect" },
+const VERDICT_STYLES: Record<Verdict, { stamp: string; ring: string; dot: string; text: string }> = {
+  UNCHANGED: {
+    stamp: "text-verified border-verified",
+    ring: "border-verified",
+    dot: "bg-verified",
+    text: "text-verified",
+  },
+  CHANGED: {
+    stamp: "text-proof border-proof",
+    ring: "border-proof",
+    dot: "bg-proof",
+    text: "text-proof",
+  },
+  UNRESOLVED: {
+    stamp: "text-suspect border-suspect",
+    ring: "border-suspect",
+    dot: "bg-suspect",
+    text: "text-suspect",
+  },
 };
+
+/** One verdict→color vocabulary shared by the verdict panel and batch cards. */
+export function verdictColor(verdict: Verdict): string {
+  return VERDICT_STYLES[verdict].text;
+}
 
 function Stamp({ verdict }: { verdict: Verdict }) {
   return (
@@ -38,14 +58,11 @@ export function VerdictPanel({ result }: { result: BlockResult }) {
         <div className="flex flex-col gap-2">
           <Stamp verdict={verdict} />
           <div className="flex items-center gap-1 font-mono text-xs text-muted">
-            {Array.from({ length: 3 }, (_, i) => (
-              <span
-                key={i}
-                className={`h-2 w-2 rounded-full ${i < result.attempts ? styles.dot : "bg-edge"}`}
-              />
+            {Array.from({ length: result.attempts }, (_, i) => (
+              <span key={i} className={`h-2 w-2 rounded-full ${styles.dot}`} />
             ))}
             <span className="ml-2">
-              {result.attempts} of 3 attempts
+              {result.attempts} {result.attempts === 1 ? "attempt" : "attempts"}
             </span>
           </div>
         </div>
