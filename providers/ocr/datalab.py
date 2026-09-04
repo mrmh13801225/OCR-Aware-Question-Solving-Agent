@@ -14,6 +14,7 @@ import httpx
 from core.domain.errors import ProviderResponseError, ProviderTimeoutError
 from core.domain.ports import OCRProvider, OCRText
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
+from providers.images import upload_file_tuple
 
 EXTRACT_URL = "https://www.datalab.to/api/v1/ocr"
 TIMEOUT_SECONDS = 120.0
@@ -56,7 +57,7 @@ class DatalabOCRProvider(OCRProvider):
             "datalab",
             lambda: self._client.post(
                 EXTRACT_URL,
-                files={"file": ("image.png", image, "image/png")},
+                files={"file": upload_file_tuple(image)},
                 data={"langs": "Persian"},
             ),
         )

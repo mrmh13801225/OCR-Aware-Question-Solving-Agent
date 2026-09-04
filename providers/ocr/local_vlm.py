@@ -1,12 +1,11 @@
 """Local-VLM OCR adapter: transcription via an OpenAI-compatible vision endpoint."""
 
-import base64
-
 import httpx
 
 from core.domain.errors import ProviderResponseError
 from core.domain.ports import OCRProvider, OCRText
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
+from providers.images import data_url
 
 EXTRACT_SYSTEM = (
     "You transcribe Persian exam scans verbatim. Output ONLY the text visible "
@@ -14,6 +13,8 @@ EXTRACT_SYSTEM = (
     "exactly as printed. No commentary, no translation, no markdown."
 )
 MAX_TOKENS = 4096
+# Transcription of a full scan page is the heaviest single call in the pipeline.
+TIMEOUT_SECONDS = 600.0
 
 
 class LocalVLMOCRProvider(OCRProvider):
@@ -40,7 +41,7 @@ class LocalVLMOCRProvider(OCRProvider):
         # injected test client must see the header too.
         self._auth_headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = http_client or httpx.Client(
-            timeout=600.0,  # transcription of a full scan page is the heaviest call
+            timeout=TIMEOUT_SECONDS,
             trust_env=trust_env_for(self._base_url),  # local gateways bypass the proxy
         )
 
@@ -60,10 +61,7 @@ class LocalVLMOCRProvider(OCRProvider):
                             "content": [
                                 {
                                     "type": "image_url",
-                                    "image_url": {
-                                        "url": "data:image/png;base64,"
-                                        + base64.b64encode(image).decode("utf-8")
-                                    },
+                                    "image_url": {"url": data_url(image)},
                                 },
                                 {"type": "text", "text": "Transcribe this scan."},
                             ],

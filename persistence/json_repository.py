@@ -11,6 +11,12 @@ from pathlib import Path
 from core.domain.models import BlockResult
 from core.domain.ports import ResultRepository
 
+# The filename embeds a timestamp, a per-instance counter, and a short uuid:
+# fixed widths keep lexical order == insertion order.
+TIMESTAMP_DIGITS = 20
+COUNTER_DIGITS = 6
+UUID_SUFFIX_CHARS = 8
+
 
 class JSONFileResultRepository(ResultRepository):
     """Repository port implementation over flat JSON files under results_dir.
@@ -28,7 +34,11 @@ class JSONFileResultRepository(ResultRepository):
 
     def save(self, result: BlockResult) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
-        name = f"{time.time_ns():020d}-{next(self._counter):06d}-{uuid.uuid4().hex[:8]}"
+        name = (
+            f"{time.time_ns():0{TIMESTAMP_DIGITS}d}"
+            f"-{next(self._counter):0{COUNTER_DIGITS}d}"
+            f"-{uuid.uuid4().hex[:UUID_SUFFIX_CHARS]}"
+        )
         target = self._dir / f"{name}.json"
         # Write-then-replace: a crash mid-write leaves a .tmp, never a partial
         # result at the target path.

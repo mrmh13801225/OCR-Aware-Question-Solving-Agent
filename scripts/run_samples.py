@@ -13,21 +13,26 @@ from pathlib import Path
 
 import httpx
 
+from config import IMAGE_SUFFIXES
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 SERVER_DOWN_HINT = "API server is not reachable. Start it with:  uvicorn api.main:app"
 DELIVERABLE_FIELDS = ("answer", "question_text", "changed", "original_ocr_text")
+# Generous client timeout: a correction call against a slow reasoning gateway
+# measured at ~7 minutes server-side.
+CLIENT_TIMEOUT_SECONDS = 900.0
 
 
 def run(samples_dir: Path, out_path: Path, base_url: str) -> None:
-    # generous client timeout: a correction call against a slow reasoning
-    # gateway measured at ~7 minutes server-side
-    client = httpx.Client(base_url=base_url, timeout=900.0, trust_env=False)
+    client = httpx.Client(
+        base_url=base_url, timeout=CLIENT_TIMEOUT_SECONDS, trust_env=False
+    )
     _require_server(client)
 
     images = sorted(
-        p for p in samples_dir.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        p for p in samples_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES
     )
     if not images:
         raise SystemExit(f"no images found in {samples_dir}")

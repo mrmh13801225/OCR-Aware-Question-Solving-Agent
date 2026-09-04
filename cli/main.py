@@ -18,6 +18,9 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+from api.routes.stream import DEFAULT_IDLE_TIMEOUT_SECONDS
+from config import IMAGE_SUFFIXES
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -26,6 +29,9 @@ console = Console()
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 SERVER_DOWN_HINT = "API server is not reachable. Start it with:  uvicorn api.main:app"
+# The stream route closes itself after its idle timeout; wait that long plus
+# a margin so a just-finished run's buffered events are fully drained.
+TRACE_JOIN_MARGIN_SECONDS = 5.0
 
 
 def http_client_for(base_url: str) -> httpx.Client:
@@ -40,24 +46,22 @@ def _die(message: str) -> None:
     raise typer.Exit(code=1)
 
 
-def _post(client: httpx.Client, path: str, payload: dict) -> dict:
+def _request(client: httpx.Client, method: str, path: str, payload: dict | None = None) -> dict:
     try:
-        response = client.post(path, json=payload)
+        response = client.request(method, path, json=payload)
     except httpx.HTTPError:
         _die(SERVER_DOWN_HINT)
     if response.status_code >= 400:
         _die(f"API error {response.status_code}: {response.text}")
     return response.json()
+
+
+def _post(client: httpx.Client, path: str, payload: dict) -> dict:
+    return _request(client, "POST", path, payload)
 
 
 def _get(client: httpx.Client, path: str) -> dict:
-    try:
-        response = client.get(path)
-    except httpx.HTTPError:
-        _die(SERVER_DOWN_HINT)
-    if response.status_code >= 400:
-        _die(f"API error {response.status_code}: {response.text}")
-    return response.json()
+    return _request(client, "GET", path)
 
 
 def _encode_image(image_path: Path) -> str:
@@ -128,7 +132,7 @@ def _trace_reader(client: httpx.Client, run_id: str):
     try:
         yield
     finally:
-        thread.join(timeout=65.0)  # idle timeout (60s) + margin
+        thread.join(timeout=DEFAULT_IDLE_TIMEOUT_SECONDS + TRACE_JOIN_MARGIN_SECONDS)
         for line in lines:
             try:
                 event = json.loads(line.removeprefix("data: "))
@@ -149,9 +153,7 @@ def batch(
     base_url: str = typer.Option(DEFAULT_BASE_URL, "--base-url"),
 ) -> None:
     """Solve every image in a directory with one batch call; the server persists results."""
-    images = sorted(
-        p for p in directory.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
-    )
+    images = sorted(p for p in directory.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES)
     if not images:
         _die(f"no images found in {directory}")
     blocks = [

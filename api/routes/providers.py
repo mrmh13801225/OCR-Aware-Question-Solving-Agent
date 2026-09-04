@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter, Request
 
+from api.deps import effective_settings
 from config import (
+    FAKE_MODEL_NAME,
     OCR_PROVIDER_NAMES,
     REASONING_PROVIDER_NAMES,
     Settings,
@@ -17,7 +19,7 @@ def _default_models(settings: Settings) -> dict:
         "claude": CLAUDE_MODEL,
         "openai_compatible": settings.openai_compat_model,
         "local_vlm": settings.local_vlm_model,
-        "fake": "fake",
+        "fake": FAKE_MODEL_NAME,
     }
 
 
@@ -28,8 +30,6 @@ def health() -> dict:
 
 @router.get("/providers")
 def providers(request: Request) -> dict:
-    from api.deps import effective_settings
-
     settings = effective_settings(request)
     return {
         "ocr": list(OCR_PROVIDER_NAMES),

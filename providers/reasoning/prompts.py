@@ -55,6 +55,22 @@ _TRANSCRIBE_SYSTEM = (
 
 _TRANSCRIBE_USER = "Transcribe this question block from the image."
 
+# The one re-ask: reasoning models occasionally reply conversationally
+# instead of with the JSON object the contract demands.
+NUDGE_SUFFIX = (
+    "\n\nYour previous reply was not a JSON object. "
+    "Respond with ONLY the JSON object, nothing else."
+)
+
+
+def with_json_nudge(user_text: str) -> str:
+    return user_text + NUDGE_SUFFIX
+
+
+def options_block(options) -> str:
+    """The options rendered one per line as 'A) text' — the wire form."""
+    return "\n".join(f"{o.label}) {o.text}" for o in options)
+
 
 def transcribe_system_prompt() -> str:
     return _TRANSCRIBE_SYSTEM

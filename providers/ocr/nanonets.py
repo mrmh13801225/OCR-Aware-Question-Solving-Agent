@@ -5,6 +5,7 @@ import httpx
 from core.domain.errors import ProviderResponseError
 from core.domain.ports import OCRProvider, OCRText
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
+from providers.images import upload_file_tuple
 
 EXTRACT_URL = "https://app.nanonets.com/api/v2/OCR/FullText"
 TIMEOUT_SECONDS = 120.0
@@ -29,7 +30,7 @@ class NanonetsOCRProvider(OCRProvider):
             "nanonets",
             lambda: self._client.post(
                 EXTRACT_URL,
-                files={"file": ("image.png", image, "image/png")},
+                files={"file": upload_file_tuple(image)},
             ),
         )
         raise_for_status(response, "nanonets")
