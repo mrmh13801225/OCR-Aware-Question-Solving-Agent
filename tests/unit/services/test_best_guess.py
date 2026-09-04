@@ -12,7 +12,7 @@ OPTIONS = [
 
 
 def _attempt(answer: str, index: int = 0) -> SolveAttempt:
-    return SolveAttempt(raw_answer=answer, question_text_used="q", attempt_index=index)
+    return SolveAttempt(raw_answer=answer, question_text_used="q")
 
 
 def test_tier1_fuzzy_recheck_finds_near_miss() -> None:
@@ -24,6 +24,18 @@ def test_tier1_fuzzy_recheck_finds_near_miss() -> None:
 def test_tier1_prefers_earliest_attempt() -> None:
     attempts = [_attempt("Z"), _attempt("D.")]
     assert pick_best(attempts, OPTIONS) == "D"
+
+
+def test_tier1_drop_one_character_pass_rescues_surviving_stray_mark() -> None:
+    # Punctuation strays are stripped by strict normalization; a digit or letter
+    # glued to the label survives it and needs the drop-one-character tier.
+    attempts = [_attempt("4C"), _attempt("Z")]
+    assert pick_best(attempts, OPTIONS) == "C"
+
+
+def test_tier1_drop_one_character_pass_rescues_persian_stray() -> None:
+    attempts = [_attempt("کC")]
+    assert pick_best(attempts, OPTIONS) == "C"
 
 
 def test_tier2_majority_vote_picks_plurality() -> None:

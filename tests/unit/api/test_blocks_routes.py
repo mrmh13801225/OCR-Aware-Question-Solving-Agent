@@ -14,8 +14,13 @@ IMAGE_B64 = base64.b64encode(b"fake-png-bytes").decode("utf-8")
 
 @pytest.fixture
 async def client(tmp_path):
-    settings = Settings(_env_file=None, ocr_provider="fake", reasoning_provider="fake")
-    app = create_app(results_dir=tmp_path / "results", settings=settings)
+    settings = Settings(
+        _env_file=None,
+        ocr_provider="fake",
+        reasoning_provider="fake",
+        results_dir=str(tmp_path / "results"),
+    )
+    app = create_app(settings=settings)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
@@ -71,12 +76,47 @@ async def test_solve_with_inject_noise_produces_changed_flow(client) -> None:
     assert body["original_ocr_text"] != body["question_text"]  # noise altered the parsed text
 
 
-async def test_solve_provider_overrides_respected(client) -> None:
+async def test_solve_unknown_provider_name_returns_422(client) -> None:
+    """A misspelled provider name is a client error — pydantic validates the
+    Literal, so it must 422, not surface as an unhandled 500 from the factory."""
     response = await client.post(
         "/api/v1/blocks/solve",
-        json={"image_base64": IMAGE_B64, "ocr_provider": "fake", "reasoning_provider": "fake"},
+        json={"image_base64": IMAGE_B64, "ocr_provider": "nope"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 422
+
+
+async def test_solve_unknown_reasoning_provider_name_returns_422(client) -> None:
+    response = await client.post(
+        "/api/v1/blocks/solve",
+        json={"image_base64": IMAGE_B64, "reasoning_provider": "nope"},
+    )
+    assert response.status_code == 422
+
+
+async def test_solve_provider_overrides_respected(client, monkeypatch) -> None:
+    """The override must actually select the named provider from the factory
+    seam — a 200 alone proves nothing."""
+    from core.domain.errors import ProviderTimeoutError
+
+    class ExplodingReasoning:
+        def __init__(self, *args, **kwargs) -> None: ...
+
+        def solve(self, image: bytes, question_text: str, options):
+            raise ProviderTimeoutError("override reached the factory", provider="fake")
+
+        def correct(self, image: bytes, block, failed_answer: str): ...
+        def transcribe(self, image: bytes): ...
+
+    monkeypatch.setitem(
+        __import__("config").REASONING_PROVIDER_REGISTRY, "fake", ExplodingReasoning
+    )
+    response = await client.post(
+        "/api/v1/blocks/solve",
+        json={"image_base64": IMAGE_B64, "reasoning_provider": "fake"},
+    )
+    assert response.status_code == 502
+    assert "override reached the factory" in response.text
 
 
 async def test_solve_with_run_id_registers_events_in_registry(client) -> None:
@@ -84,8 +124,8 @@ async def test_solve_with_run_id_registers_events_in_registry(client) -> None:
         "/api/v1/blocks/solve", json={"image_base64": IMAGE_B64, "run_id": "run-42"}
     )
     assert response.status_code == 200
-    registry = client._transport.app.state.run_registry  # type: ignore[attr-defined]
-    assert len(registry.events("run-42")) >= 2  # SOLVE + VERIFY + DONE at minimum
+    registry = client._transport.app.state.run_registry
+    assert [e.run_state for e in registry.events("run-42")] == ["SOLVE", "VERIFY", "DONE"]
 
 
 async def test_batch_solves_each_block_and_returns_list(client) -> None:
@@ -139,20 +179,78 @@ async def test_result_persisted_to_json_repository(client, tmp_path) -> None:
     assert len(repo.list()) == 1
 
 
+async def test_unparseable_ocr_text_returns_honest_unresolved_result(client) -> None:
+    """OCR text the parser rejects outright yields an unresolved result with a
+    truthful attempt count — zero solves ran — and no fabricated 'changed'."""
+    response = await client.post(
+        "/api/v1/blocks/solve",
+        json={"image_base64": IMAGE_B64, "ocr_text": "garbage without any options"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["unresolved"] is True
+    assert body["attempts"] == 0
+    assert body["changed"] is False
+
+
 async def test_provider_errors_become_502_not_500(client, monkeypatch) -> None:
     """A vendor failure inside the loop must surface as a clean 502 with the
-    provider error's message, never an unhandled 500."""
+    provider error's message, never an unhandled 500 — exercised at the
+    registry seam, not by swapping an internal collaborator."""
     from core.domain.errors import ProviderTimeoutError
 
-    class ExplodingLoop:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
+    class ExplodingReasoning:
+        def __init__(self, *args, **kwargs) -> None: ...
 
-        def solve_block(self, image: bytes, extracted=None):
+        def solve(self, image: bytes, question_text: str, options):
             raise ProviderTimeoutError("timed out", provider="openai_compatible")
 
-    monkeypatch.setattr("api.routes.blocks.RetryLoop", ExplodingLoop)
+        def correct(self, image: bytes, block, failed_answer: str): ...
+        def transcribe(self, image: bytes): ...
+
+    monkeypatch.setitem(
+        __import__("config").REASONING_PROVIDER_REGISTRY, "fake", ExplodingReasoning
+    )
     response = await client.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
     assert response.status_code == 502
     assert "timed out" in response.text
     assert "openai_compatible" in response.text
+
+
+async def test_our_side_errors_are_500_not_502(client, monkeypatch) -> None:
+    """ParseError/NoiseError are our bugs, not upstream failures — they must
+    not masquerade as a bad gateway."""
+    from core.domain.errors import NoiseError
+
+    class ExplodingInjector:
+        def __init__(self, *args, **kwargs) -> None: ...
+
+        def corrupt(self, block):
+            raise NoiseError("boom")
+
+    monkeypatch.setattr("api.routes.blocks.NoiseInjector", ExplodingInjector)
+    # ASGITransport re-raises unhandled app errors by default; a real server
+    # converts them to a 500 response, which is the behavior under test.
+    transport = ASGITransport(app=client._transport.app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        response = await http.post(
+            "/api/v1/blocks/solve", json={"image_base64": IMAGE_B64, "inject_noise": True}
+        )
+    assert response.status_code == 500
+
+
+async def test_results_dir_setting_controls_persistence(client, tmp_path) -> None:
+    """API_SPEC: GET /results reads RESULTS_DIR — the setting must actually
+    decide where results land."""
+    custom_dir = tmp_path / "custom-results"
+    settings = Settings(
+        _env_file=None,
+        ocr_provider="fake",
+        reasoning_provider="fake",
+        results_dir=str(custom_dir),
+    )
+    app = create_app(settings=settings)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        await http.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
+    assert len(list(custom_dir.glob("*.json"))) == 1

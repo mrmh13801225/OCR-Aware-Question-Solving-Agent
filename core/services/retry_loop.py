@@ -48,10 +48,10 @@ class RetryLoop:
                 return BlockResult(
                     answer="",
                     question_text=original_ocr_text,
-                    changed=True,
+                    changed=False,
                     original_ocr_text=original_ocr_text,
                     unresolved=True,
-                    attempts=self.retry_cap + 1,
+                    attempts=0,
                 )
             block = recovered
 

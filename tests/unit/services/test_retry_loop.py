@@ -46,9 +46,7 @@ class ScriptedReasoning:
         self.seen_images.append(image)
         self.seen_questions.append(question_text)
         answer = self.answers[min(self.solve_calls - 1, len(self.answers) - 1)]
-        return SolveAttempt(
-            raw_answer=answer, question_text_used=question_text, attempt_index=self.solve_calls - 1
-        )
+        return SolveAttempt(raw_answer=answer, question_text_used=question_text)
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
         self.correct_calls += 1
@@ -72,25 +70,11 @@ class RecordingListener:
         self.events.append(event)
 
 
-@dataclass
-class IndexHardcodedReasoning:
-    """Mimics real adapters, which self-report attempt_index=0 on every call."""
-
-    answers: list[str]
-    solve_calls: int = 0
-
-    def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
-        self.solve_calls += 1
-        answer = self.answers[min(self.solve_calls - 1, len(self.answers) - 1)]
-        return SolveAttempt(raw_answer=answer, question_text_used=question_text, attempt_index=0)
-
-    def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
-        return block
-
-
 def _loop(
     ocr: FakeOCR, reasoning: ScriptedReasoning, cap: int = 2
 ) -> tuple[RetryLoop, RecordingListener]:
+    listener = RecordingListener()
+    return RetryLoop(ocr, reasoning, listener, retry_cap=cap), listener
     listener = RecordingListener()
     return RetryLoop(ocr, reasoning, listener, retry_cap=cap), listener
 
@@ -216,41 +200,13 @@ def test_retry_cap_from_config_not_hardcoded() -> None:
     assert loop2.solve_block(IMG).attempts == 4
 
 
-class IndexObliviousReasoning(ScriptedReasoning):
-    """Mimics real adapters: always reports attempt_index=0 regardless of call count."""
-
-    def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
-        attempt = super().solve(image, question_text, options)
-        return SolveAttempt(
-            raw_answer=attempt.raw_answer, question_text_used=question_text, attempt_index=0
-        )
-
-
-def test_changed_flag_does_not_depend_on_adapter_reported_index() -> None:
-    ocr, reasoning = FakeOCR(), IndexObliviousReasoning(answers=["Z", "C"])
-    loop, _ = _loop(ocr, reasoning)
-    result = loop.solve_block(IMG)
-    assert result.attempts == 2
-    assert result.changed is True
-
-
 def test_done_event_carries_the_final_attempt_index() -> None:
-    ocr, reasoning = FakeOCR(), IndexObliviousReasoning(answers=["Z", "C"])
+    ocr, reasoning = FakeOCR(), ScriptedReasoning(answers=["Z", "C"])
     loop, listener = _loop(ocr, reasoning)
     loop.solve_block(IMG)
     done_events = [e for e in listener.events if e.run_state == "DONE"]
     assert len(done_events) == 1
     assert done_events[0].attempt_index == 1
-
-
-def test_changed_true_even_when_adapters_hardcode_index_zero() -> None:
-    # Regression guard for the E1 fix: real adapters self-report attempt_index=0,
-    # so `changed` must derive from the attempt count, never from adapter state.
-    ocr, reasoning = FakeOCR(), IndexHardcodedReasoning(answers=["Z", "C"])
-    loop, _ = _loop(ocr, reasoning)
-    result = loop.solve_block(IMG)
-    assert result.attempts == 2
-    assert result.changed is True
 
 
 def test_pre_parsed_ocr_text_skips_ocr_call_but_keeps_the_loop() -> None:
@@ -300,4 +256,5 @@ def test_parse_failure_exhausting_the_cap_returns_unresolved() -> None:
     loop, _ = _loop(ocr, reasoning)
     result = loop.solve_block(IMG)
     assert result.unresolved is True
-    assert result.attempts == 3  # cap respected even in the parse-recovery path
+    assert result.attempts == 0  # no solve call ever ran: honest count, not cap-derived
+    assert result.changed is False  # nothing was corrected; the text was never solvable

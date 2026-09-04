@@ -3,7 +3,7 @@
 import pytest
 
 from core.domain.models import Option
-from core.services.answer_matcher import fuzzy_matches, matches, resolve_letter
+from core.services.answer_matcher import matches, resolve_fuzzy_letter, resolve_letter
 
 OPTIONS = [
     Option("A", "تهران"),
@@ -26,6 +26,9 @@ def test_persian_digit_answer_normalized_to_match() -> None:
 
 def test_diacritics_and_whitespace_ignored() -> None:
     assert matches("  C  ", OPTIONS)
+    assert matches("Ć", OPTIONS)  # combining acute over the letter
+    assert matches("َC", OPTIONS)  # Arabic fatha before the letter
+    assert matches("c̣", OPTIONS)  # dot below survives normalization
 
 
 def test_stray_punctuation_tolerated() -> None:
@@ -38,10 +41,13 @@ def test_unrelated_answer_does_not_match() -> None:
     assert not matches("تهران", OPTIONS)  # option text is not an option label
 
 
-def test_fuzzy_matches_within_edit_distance_one() -> None:
-    assert fuzzy_matches("C.", OPTIONS)  # stray trailing char
-    assert fuzzy_matches("3", OPTIONS)  # digit-script difference is normalization, not fuzzy
-    assert not fuzzy_matches("K", OPTIONS)
+def test_resolve_fuzzy_letter_rescues_near_misses() -> None:
+    assert resolve_fuzzy_letter("C.", OPTIONS) == "C"  # stray punctuation strict-normalizes
+    assert resolve_fuzzy_letter("3", OPTIONS) == "C"  # digit-script difference is normalization
+    assert resolve_fuzzy_letter("4C", OPTIONS) == "C"  # surviving stray mark: deletion tier
+    assert resolve_fuzzy_letter("کC", OPTIONS) == "C"  # Persian letter glued to the label
+    assert resolve_fuzzy_letter("K", OPTIONS) is None
+    assert resolve_fuzzy_letter("KK", OPTIONS) is None  # two strays is not a stray mark
 
 
 def test_resolve_letter_trust_model_returns_model_letter() -> None:

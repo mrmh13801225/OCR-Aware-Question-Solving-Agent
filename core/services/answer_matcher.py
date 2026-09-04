@@ -8,19 +8,21 @@ unresolved path in best_guess.
 
 import unicodedata
 
-from core.domain.models import AnswerMapping, Option
+from core.domain.models import OPTION_LABELS, AnswerMapping, Option
 
 _PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
 _ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
 _TO_LATIN_DIGITS = str.maketrans(_PERSIAN_DIGITS + _ARABIC_DIGITS, "0123456789" * 2)
 
-_LETTER_TO_INDEX = {chr(ord("A") + i): i for i in range(8)}
+_LETTER_TO_INDEX = {label: i for i, label in enumerate(OPTION_LABELS)}
 _PERSIAN_LETTER_TO_INDEX = {"الف": 0, "ب": 1, "ج": 2, "د": 3}
 
 
 def normalize(text: str) -> str:
     """Canonical form: Latin digits, stripped marks/whitespace/punctuation."""
-    text = unicodedata.normalize("NFKC", text).translate(_TO_LATIN_DIGITS)
+    # NFKD (decompose, no recompose) — NFKC would fuse base+mark into a
+    # precomposed letter (C + U+0301 -> Ć) that the strip pass can't see.
+    text = unicodedata.normalize("NFKD", text).translate(_TO_LATIN_DIGITS)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return "".join(ch for ch in text if not ch.isspace() and unicodedata.category(ch)[0] != "P")
 
@@ -45,29 +47,7 @@ def matches(raw_answer: str, options: list[Option]) -> bool:
     return index is not None and 0 <= index < len(options)
 
 
-def fuzzy_matches(raw_answer: str, options: list[Option]) -> bool:
-    """Lenient check — unresolved path only.
-
-    A strict index lookup fails on stray characters ("C." vs C) or OCR-swapped
-    letter forms ("G" read for C). Fuzzy tolerance means: drop or swap at most
-    one character and re-check the label vocabulary. Free-string edit distance
-    is deliberately NOT used — every single-letter string would then be within
-    distance 1 of every one-letter label.
-    """
-    if matches(raw_answer, options):
-        return True
-    normalized = normalize(raw_answer).upper()
-    for i in range(len(normalized)):
-        if normalized_label_index(normalized[:i] + normalized[i + 1 :]) is not None:
-            return True
-    for _from, to in _CONFUSABLE_LETTERS:
-        if to == normalized and normalized_label_index(_from) is not None:
-            return True
-    return False
-
-
-# OCR reads one letter form as its visually confusable neighbor; a stray mark
-# is handled by the deletion pass above.
+# OCR reads one letter form as its visually confusable neighbor: (read, printed).
 _CONFUSABLE_LETTERS: list[tuple[str, str]] = [
     ("C", "G"),
     ("G", "C"),
@@ -78,20 +58,59 @@ _CONFUSABLE_LETTERS: list[tuple[str, str]] = [
 ]
 
 
+def fuzzy_index(normalized_answer: str, option_count: int) -> int | None:
+    """Index for an answer only fuzzy tolerance accepts; None if unmappable.
+
+    Tiers, in declared order (DESIGN.md §7): strict lookup, then a
+    drop-one-character re-check (a stray mark glued to the label survives
+    normalization — "4C" or "کC"), then the visually-confusable letter table.
+    An index outside the block's option range falls through to the next tier:
+    OCR reads C as G, not as option G. Free-string edit distance is
+    deliberately NOT used — every single-letter string would be within
+    distance 1 of every one-letter label.
+    """
+    index = _strict_index(normalized_answer, option_count)
+    if index is not None:
+        return index
+    index = _deletion_index(normalized_answer, option_count)
+    if index is not None:
+        return index
+    return _confusable_index(normalized_answer, option_count)
+
+
 def resolve_fuzzy_letter(raw_answer: str, options: list[Option]) -> str | None:
     """Letter for an answer only the fuzzy tier accepts; None if truly unmappable."""
-    index = normalized_label_index(raw_answer)
-    if index is None or not 0 <= index < len(options):
-        # Out-of-range strict mappings (G for a 4-option block) fall through to
-        # the confusable table: OCR reads C as G, not as option G.
-        normalized = normalize(raw_answer).upper()
-        index = next(
-            (_LETTER_TO_INDEX[_from] for _from, to in _CONFUSABLE_LETTERS if to == normalized),
-            None,
-        )
-    if index is None or not 0 <= index < len(options):
+    index = fuzzy_index(normalize(raw_answer).upper(), len(options))
+    if index is None:
         return None
     return options[index].label
+
+
+def _in_range(index: int | None, option_count: int) -> bool:
+    return index is not None and 0 <= index < option_count
+
+
+def _strict_index(normalized: str, option_count: int) -> int | None:
+    index = normalized_label_index(normalized)
+    return index if _in_range(index, option_count) else None
+
+
+def _deletion_index(normalized: str, option_count: int) -> int | None:
+    for i in range(len(normalized)):
+        index = normalized_label_index(normalized[:i] + normalized[i + 1 :])
+        if _in_range(index, option_count):
+            return index
+    return None
+
+
+def _confusable_index(normalized: str, option_count: int) -> int | None:
+    for letter, confusable in _CONFUSABLE_LETTERS:
+        if confusable != normalized:
+            continue
+        index = normalized_label_index(letter)
+        if _in_range(index, option_count):
+            return index
+    return None
 
 
 def resolve_letter(strategy: AnswerMapping, raw_answer: str, options: list[Option]) -> str | None:
