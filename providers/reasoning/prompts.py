@@ -14,6 +14,7 @@ _SOLVE_SYSTEM_IMAGE_GROUNDED = (
     "Answer with ONLY the option letter (A, B, C, or D) on its own line."
 )
 
+
 # text_only mode ships no image, so no image instruction: telling the model
 # to trust one over the text would be a false statement about its inputs.
 _SOLVE_SYSTEM_TEXT_ONLY = (
@@ -23,7 +24,7 @@ _SOLVE_SYSTEM_TEXT_ONLY = (
 )
 
 _CORRECT_SYSTEM = (
-    "You correct OCR transcription errors in a Persian multiple-choice question, "
+    "You correct OCR transcription errors in a multiple-choice question, "
     "using the scan image as ground truth. Make the minimal plausible correction: "
     "fix only the characters/words that are wrong, never rewrite the question, "
     "never invent or remove options, never change an option label. "
@@ -59,7 +60,7 @@ def correct_user_text(question_text: str, option_lines: str, failed_answer: str)
 
 
 _TRANSCRIBE_SYSTEM = (
-    "You transcribe Persian multiple-choice exam scans. Output ONLY a JSON object: "
+    "You transcribe multiple-choice exam scans. Output ONLY a JSON object: "
     '{"question_text": "...", "options": [{"label": "A", "text": "..."}, ...]} '
     "with labels A, B, C, D in reading order. Transcribe exactly what the scan shows; "
     "if an option is math typeset, reproduce it verbatim in the text field."

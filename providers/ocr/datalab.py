@@ -62,7 +62,6 @@ class DatalabOCRProvider(OCRProvider):
             lambda: self._client.post(
                 EXTRACT_URL,
                 files={"file": upload_file_tuple(image)},
-                data={"langs": "Persian"},
             ),
         )
         raise_for_status(response, "datalab")

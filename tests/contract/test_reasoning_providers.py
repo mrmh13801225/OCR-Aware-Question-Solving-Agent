@@ -101,7 +101,7 @@ def _build(
                 api_key="test-key",
                 model="test-model",
                 http_client=transport,
-                solve_mode=solve_mode or "image_grounded",
+                solve_mode="image_grounded" if solve_mode is None else solve_mode,
             ),
             handler,
         )
@@ -113,6 +113,20 @@ def _system_text(adapter: str, body: dict) -> str:
     if adapter == "claude":
         return str(body.get("system") or "")
     return str(body["messages"][0]["content"])
+
+
+def test_prompts_are_language_neutral() -> None:
+    """The agent must not be locked to one language: no prompt names one —
+    Persian support lives in the parser/matcher features, not the prompts."""
+    from providers.reasoning import prompts
+
+    for text in (
+        prompts.solve_system_prompt("image_grounded"),
+        prompts.solve_system_prompt("text_only"),
+        prompts.correct_system_prompt(),
+        prompts.transcribe_system_prompt(),
+    ):
+        assert "persian" not in text.lower()
 
 
 @pytest.mark.parametrize("adapter", ADAPTER_NAMES)
@@ -192,6 +206,17 @@ class TestReasoningContract:
         provider, _ = _build(adapter, _mock_handler(adapter))
         with caplog.at_level(logging.INFO, logger="providers"):
             provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        trail = "\n".join(record.getMessage() for record in caplog.records)
+        assert base64.b64encode(IMAGE).decode() not in trail
+
+    @pytest.mark.parametrize("call", ["correct", "transcribe"])
+    def test_other_calls_logs_never_carry_the_image(self, adapter: str, call: str, caplog) -> None:
+        provider, _ = _build(adapter, _mock_handler(adapter))
+        with caplog.at_level(logging.INFO, logger="providers"):
+            if call == "correct":
+                provider.correct(IMAGE, BLOCK, "Z")
+            else:
+                provider.transcribe(IMAGE)
         trail = "\n".join(record.getMessage() for record in caplog.records)
         assert base64.b64encode(IMAGE).decode() not in trail
 

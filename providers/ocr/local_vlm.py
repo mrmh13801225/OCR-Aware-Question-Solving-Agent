@@ -10,7 +10,7 @@ from providers.http import call_vendor, json_field, raise_for_status, trust_env_
 from providers.images import data_url
 
 EXTRACT_SYSTEM = (
-    "You transcribe Persian exam scans verbatim. Output ONLY the text visible "
+    "You transcribe exam scans verbatim. Output ONLY the text visible "
     "in the image: the question and its numbered options, one per line, "
     "exactly as printed. No commentary, no translation, no markdown."
 )

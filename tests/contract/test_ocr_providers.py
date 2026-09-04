@@ -127,6 +127,67 @@ def test_datalab_complete_but_empty_reply_is_a_vendor_error() -> None:
         provider.extract_text(IMAGE)
 
 
+def test_datalab_submit_carries_no_language_lock() -> None:
+    """The agent must not be locked to one language: the submit request lets
+    the vendor auto-detect instead of hardcoding a `langs` field. The body is
+    read inside the handler — that is when the multipart payload is real."""
+    bodies: list[bytes] = []
+    base_handler = _fixture_handler("datalab", "extract_ok")
+
+    def capturing(request: httpx.Request) -> httpx.Response:
+        bodies.append(request.read())
+        return base_handler(request)
+
+    provider = _build("datalab", capturing)
+    provider.extract_text(IMAGE)
+    assert b'name="langs"' not in bodies[0]
+
+
+def test_datalab_poll_error_field_is_a_vendor_error() -> None:
+    from providers.ocr.datalab import DatalabOCRProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200, json={"request_id": "req-1", "status": "processing", "success": True}
+            )
+        return httpx.Response(
+            200, json={"request_id": "req-1", "status": "failed", "error": "boom"}
+        )
+
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = DatalabOCRProvider(
+        api_key="test-key", http_client=transport, clock=lambda: 0.0, sleep=lambda _s: None
+    )
+    with pytest.raises(ProviderResponseError, match="vendor reported failure"):
+        provider.extract_text(IMAGE)
+
+
+def test_datalab_poll_timeout_is_a_provider_timeout() -> None:
+    from providers.ocr.datalab import DatalabOCRProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200, json={"request_id": "req-1", "status": "processing", "success": True}
+            )
+        return httpx.Response(200, json={"request_id": "req-1", "status": "processing"})
+
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
+    clock = iter([0.0, 200.0]).__next__  # started, then past POLL_LIMIT
+    provider = DatalabOCRProvider(
+        api_key="test-key", http_client=transport, clock=clock, sleep=lambda _s: None
+    )
+    with pytest.raises(ProviderTimeoutError, match="polling exceeded"):
+        provider.extract_text(IMAGE)
+
+
+def test_local_vlm_extract_prompt_is_language_neutral() -> None:
+    from providers.ocr.local_vlm import EXTRACT_SYSTEM
+
+    assert "persian" not in EXTRACT_SYSTEM.lower()
+
+
 def _fixture_handler(adapter: str, case: str) -> Callable[[httpx.Request], httpx.Response]:
     """Serve fixtures per flow: single-shot adapters get one payload; the
     datalab submit+poll flow gets a POST (submit) payload and a GET (poll)

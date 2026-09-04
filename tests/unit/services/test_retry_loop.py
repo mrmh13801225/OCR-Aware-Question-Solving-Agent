@@ -300,10 +300,9 @@ def test_audit_trail_logs_parse_recovery_transcription(
     assert "transcribe" in trail and "recovered" in trail  # the re-read AND its content
 
 
-def test_text_only_mode_still_corrects_image_grounded() -> None:
-    """The mode's core interaction, at the loop level: the loop is
-    mode-agnostic — it always passes image bytes, and the adapter decides what
-    goes on the wire. Pin the loop contract that makes the adapter split work."""
+def test_loop_passes_the_image_to_solve_and_correct() -> None:
+    """The loop is mode-agnostic: it always passes image bytes to both calls,
+    and the adapter decides what goes on the wire (the SolveMode split)."""
     corrected = ParsedBlock(question_text="کدام شهر ایران؟", options=OPTIONS, raw_text=RAW_TEXT)
     ocr, reasoning = FakeOCR(), ScriptedReasoning(answers=["Z", "C"], corrections=[corrected])
     loop, _ = _loop(ocr, reasoning)
