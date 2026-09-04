@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from config import REASONING_PROVIDER_REGISTRY, Settings
+from config import REASONING_PROVIDER_REGISTRY
 from core.domain.errors import (
     ProviderAuthError,
     ProviderError,
@@ -107,10 +107,12 @@ def _build(
         )
     raise ValueError(adapter)
 
-    from config import build_reasoning_provider
 
-    settings = Settings(_env_file=None, reasoning_provider=adapter)
-    return build_reasoning_provider(adapter, settings), handler
+def _system_text(adapter: str, body: dict) -> str:
+    """The system-prompt text from either wire shape (Messages API vs chat)."""
+    if adapter == "claude":
+        return str(body.get("system") or "")
+    return str(body["messages"][0]["content"])
 
 
 @pytest.mark.parametrize("adapter", ADAPTER_NAMES)
@@ -184,7 +186,14 @@ class TestReasoningContract:
             provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
         trail = "\n".join(record.getMessage() for record in caplog.records)
         assert BLOCK.question_text in trail  # the prompt's text part
-        assert "C" in trail  # the response content
+        assert "response:" in trail and "C" in trail  # the response record carries content
+
+    def test_solve_logs_never_carry_the_image(self, adapter: str, caplog) -> None:
+        provider, _ = _build(adapter, _mock_handler(adapter))
+        with caplog.at_level(logging.INFO, logger="providers"):
+            provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        trail = "\n".join(record.getMessage() for record in caplog.records)
+        assert base64.b64encode(IMAGE).decode() not in trail
 
     def test_correct_logs_prompt_and_response(self, adapter: str, caplog) -> None:
         provider, _ = _build(adapter, _mock_handler(adapter))
@@ -192,7 +201,7 @@ class TestReasoningContract:
             provider.correct(IMAGE, BLOCK, "Z")
         trail = "\n".join(record.getMessage() for record in caplog.records)
         assert BLOCK.question_text in trail  # prompt carries the block
-        assert "question_text" in trail  # response is the correction JSON
+        assert "response:" in trail and "question_text" in trail  # the correction JSON
 
     @pytest.mark.parametrize("solve_mode", ["image_grounded", "text_only"])
     def test_correct_is_always_image_grounded(self, adapter: str, solve_mode: SolveMode) -> None:
@@ -223,6 +232,38 @@ class TestReasoningContract:
         flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
         assert BLOCK.question_text in flat  # the OCR text still travels
         assert base64.b64encode(IMAGE).decode() not in flat  # but not the pixels
+
+    def test_text_only_solve_does_not_instruct_image_trust(self, adapter: str) -> None:
+        """In text_only no image travels, so the system prompt must not tell
+        the model to trust one over the text — a false instruction."""
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "solve_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing, solve_mode="text_only")
+        provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        body = json.loads(seen["req"].content.decode("utf-8"))
+        system_text = _system_text(adapter, body)
+        assert "trust the image" not in system_text.lower()
+        assert "from a scan image" not in system_text.lower()
+        assert "option letter" in system_text.lower()  # the solve contract stays
+
+    def test_image_grounded_solve_keeps_the_image_instruction(self, adapter: str) -> None:
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "solve_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing)
+        provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        body = json.loads(seen["req"].content.decode("utf-8"))
+        system_text = _system_text(adapter, body)
+        assert "image" in system_text.lower()
 
     def test_default_solve_mode_is_image_grounded(self, adapter: str) -> None:
         seen: dict[str, httpx.Request] = {}

@@ -6,6 +6,8 @@ adapter honors the OCRProvider protocol and maps vendor failures to the same
 typed errors — hermetically, no live keys.
 """
 
+import base64
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -67,6 +69,16 @@ class TestOCRContract:
         provider = _build(adapter, _fixture_handler(adapter, "extract_empty"))
         extracted = provider.extract_text(IMAGE)
         assert extracted.text == ""
+
+    def test_extraction_is_logged_and_carries_no_image(self, adapter: str, caplog) -> None:
+        """Every adapter logs the extracted text at INFO, and no log record
+        anywhere leaks the image bytes."""
+        provider = _build(adapter, _fixture_handler(adapter, "extract_ok"))
+        with caplog.at_level(logging.INFO, logger="providers.ocr"):
+            provider.extract_text(IMAGE)
+        trail = "\n".join(record.getMessage() for record in caplog.records)
+        assert f"{adapter} extracted:" in trail  # the choke point every adapter must have
+        assert base64.b64encode(IMAGE).decode() not in trail
 
     @pytest.mark.parametrize(
         ("status", "expected"),

@@ -6,9 +6,19 @@ JSON with labels and order unchanged. Extracted so the two adapters cannot
 drift apart.
 """
 
-_SOLVE_SYSTEM = (
-    "You solve Persian multiple-choice questions from a scan image. "
+from core.domain.models import SolveMode
+
+_SOLVE_SYSTEM_IMAGE_GROUNDED = (
+    "You solve multiple-choice questions from a scan image. "
     "The OCR text provided may contain errors; trust the image over the text. "
+    "Answer with ONLY the option letter (A, B, C, or D) on its own line."
+)
+
+# text_only mode ships no image, so no image instruction: telling the model
+# to trust one over the text would be a false statement about its inputs.
+_SOLVE_SYSTEM_TEXT_ONLY = (
+    "You solve multiple-choice questions from OCR text. "
+    "The text may contain OCR errors; answer based on what is written. "
     "Answer with ONLY the option letter (A, B, C, or D) on its own line."
 )
 
@@ -23,8 +33,10 @@ _CORRECT_SYSTEM = (
 )
 
 
-def solve_system_prompt() -> str:
-    return _SOLVE_SYSTEM
+def solve_system_prompt(solve_mode: SolveMode = "image_grounded") -> str:
+    if solve_mode == "text_only":
+        return _SOLVE_SYSTEM_TEXT_ONLY
+    return _SOLVE_SYSTEM_IMAGE_GROUNDED
 
 
 def correct_system_prompt() -> str:

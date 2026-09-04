@@ -213,6 +213,44 @@ async def test_batch_solves_each_block_and_returns_list(client) -> None:
     assert all("answer" in result for result in body["results"])
 
 
+async def test_batch_carries_per_block_solve_mode(client, monkeypatch) -> None:
+    """Each batch element is a full SolveRequest: its solve_mode must reach
+    the factory per block, not just the first one."""
+    from core.domain.models import ParsedBlock, SolveAttempt
+
+    captured_modes: list[str] = []
+
+    def recording_fake(settings, solve_mode):
+        captured_modes.append(solve_mode)
+
+        class RecordingReasoning:
+            def solve(self, image: bytes, question_text: str, options):
+                return SolveAttempt(raw_answer=options[0].label, question_text_used=question_text)
+
+            def correct(self, image: bytes, block, failed_answer: str):
+                return block
+
+            def transcribe(self, image: bytes):
+                return ParsedBlock(question_text="", options=[], raw_text="")
+
+        return RecordingReasoning()
+
+    import config
+
+    monkeypatch.setitem(config.REASONING_PROVIDER_REGISTRY, "fake", recording_fake)
+    response = await client.post(
+        "/api/v1/blocks/batch",
+        json={
+            "blocks": [
+                {"image_base64": IMAGE_B64, "solve_mode": "text_only"},
+                {"image_base64": IMAGE_B64, "solve_mode": "image_grounded"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert captured_modes == ["text_only", "image_grounded"]
+
+
 async def test_batch_rejects_malformed_blocks_with_422(client) -> None:
     response = await client.post(
         "/api/v1/blocks/batch",

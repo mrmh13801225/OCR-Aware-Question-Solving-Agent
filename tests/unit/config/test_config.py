@@ -66,7 +66,21 @@ def test_unknown_log_level_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(_env_file=None)
 
 
-def test_configure_logging_sets_the_datic_level() -> None:
+@pytest.fixture
+def restore_root_logging():
+    """configure_logging mutates the global root logger (force=True); restore
+    it so the mutation never leaks into other tests."""
+    import logging
+
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    yield
+    root.handlers[:] = saved_handlers
+    root.setLevel(saved_level)
+
+
+def test_configure_logging_sets_the_datic_level(restore_root_logging) -> None:
     import logging
 
     from config import configure_logging
@@ -76,6 +90,25 @@ def test_configure_logging_sets_the_datic_level() -> None:
     assert not logging.getLogger("core.services.retry_loop").isEnabledFor(logging.INFO)
     configure_logging("INFO")
     assert logging.getLogger("core.services.retry_loop").isEnabledFor(logging.INFO)
+
+
+def test_configure_logging_writes_the_trail_to_log_file(restore_root_logging, tmp_path) -> None:
+    import logging
+
+    from config import configure_logging
+
+    log_file = tmp_path / "audit.log"
+    configure_logging("INFO", log_file=str(log_file))
+    logging.getLogger("core.services.retry_loop").info("trail entry")
+    for handler in root_handlers():
+        handler.flush()
+    assert "trail entry" in log_file.read_text(encoding="utf-8")
+
+
+def root_handlers() -> list:
+    import logging
+
+    return logging.getLogger().handlers
 
 
 def test_env_overrides_loaded(monkeypatch: pytest.MonkeyPatch) -> None:

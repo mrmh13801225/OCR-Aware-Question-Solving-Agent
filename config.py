@@ -140,4 +140,4 @@ def build_reasoning_provider(
     builder = REASONING_PROVIDER_REGISTRY.get(name)
     if builder is None:
         raise _valid_names_error("reasoning", name, tuple(REASONING_PROVIDER_REGISTRY))
-    return builder(settings, solve_mode or settings.solve_mode)
+    return builder(settings, settings.solve_mode if solve_mode is None else solve_mode)

@@ -71,7 +71,7 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         ]
         if self._solve_mode == "image_grounded":
             content.append(self._image_part(image))
-        reply = self._chat(solve_system_prompt(), content)
+        reply = self._chat(solve_system_prompt(self._solve_mode), content)
         return SolveAttempt(raw_answer=reply.strip(), question_text_used=question_text)
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:

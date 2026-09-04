@@ -63,7 +63,7 @@ class ClaudeReasoningProvider(ReasoningProvider):
         # travels on every correct()/transcribe() call below.
         solve_image = image if self._solve_mode == "image_grounded" else b""
         text = self._complete(
-            solve_system_prompt(),
+            solve_system_prompt(self._solve_mode),
             solve_user_text(question_text, options_block(options)),
             solve_image,
         )

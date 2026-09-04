@@ -20,9 +20,9 @@ from providers.images import upload_file_tuple
 EXTRACT_URL = "https://www.datalab.to/api/v1/ocr"
 TIMEOUT_SECONDS = 120.0
 POLL_INTERVAL_SECONDS = 2.0
+POLL_LIMIT_SECONDS = 90.0
 
 logger = logging.getLogger(__name__)
-POLL_LIMIT_SECONDS = 90.0
 
 
 class DatalabOCRProvider(OCRProvider):
@@ -53,6 +53,7 @@ class DatalabOCRProvider(OCRProvider):
     def extract_text(self, image: bytes) -> OCRText:
         request_id = self._submit(image)
         text = self._poll(request_id)
+        logger.info("datalab extracted: %s", text)
         return OCRText(text=text, provider="datalab")
 
     def _submit(self, image: bytes) -> str:
