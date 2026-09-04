@@ -59,7 +59,7 @@ def test_labels_are_never_corrupted() -> None:
 
 
 def test_digit_lookalike_rule_applies() -> None:
-    injector = NoiseInjector(rate=1.0, seed=0, rules=["digit"])
+    injector = NoiseInjector(rate=1.0, seed=0, rules=("digit",))
     block = ParsedBlock(
         question_text="سؤال",
         options=[Option("A", "۲"), Option("B", "۳"), Option("C", "۴"), Option("D", "۵")],
@@ -71,7 +71,7 @@ def test_digit_lookalike_rule_applies() -> None:
 
 
 def test_letter_lookalike_rule_applies() -> None:
-    injector = NoiseInjector(rate=1.0, seed=0, rules=["letter"])
+    injector = NoiseInjector(rate=1.0, seed=0, rules=("letter",))
     block = ParsedBlock(
         question_text="سؤال",
         options=[Option("A", "پ"), Option("B", "ژ"), Option("C", "ک"), Option("D", "ی")],
@@ -82,7 +82,7 @@ def test_letter_lookalike_rule_applies() -> None:
 
 
 def test_diacritic_and_tashkeel_loss_rule_applies() -> None:
-    injector = NoiseInjector(rate=1.0, seed=0, rules=["diacritic"])
+    injector = NoiseInjector(rate=1.0, seed=0, rules=("diacritic",))
     block = ParsedBlock(
         question_text="سؤال",
         options=[Option("A", "مُعَلِّم"), Option("B", "کِتاب"), Option("C", "خانہ"), Option("D", "دَرس")],
@@ -125,4 +125,4 @@ def test_corrupted_letter_label_block_still_reparses_with_all_options() -> None:
 
 def test_unknown_rule_name_raises() -> None:
     with pytest.raises(NoiseError):
-        NoiseInjector(rate=0.1, seed=1, rules=["nonexistent"])
+        NoiseInjector(rate=0.1, seed=1, rules=("nonexistent",))

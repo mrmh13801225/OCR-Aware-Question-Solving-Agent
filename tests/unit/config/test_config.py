@@ -13,6 +13,7 @@ from config import (
     build_ocr_provider,
     build_reasoning_provider,
 )
+from core.domain.ports import OCRProvider, ReasoningProvider
 
 
 def test_defaults_retry_cap_2_noise_rate_0_05_answer_mapping_trust_model() -> None:
@@ -74,12 +75,12 @@ def test_env_overrides_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_factory_builds_each_registered_provider() -> None:
     from config import OCR_PROVIDER_REGISTRY, REASONING_PROVIDER_REGISTRY
 
-    for name, provider_type in OCR_PROVIDER_REGISTRY.items():
+    for name in OCR_PROVIDER_REGISTRY:
         settings = Settings(_env_file=None, ocr_provider=name)
-        assert isinstance(build_ocr_provider(name, settings), provider_type)
-    for name, provider_type in REASONING_PROVIDER_REGISTRY.items():
+        assert isinstance(build_ocr_provider(name, settings), OCRProvider)
+    for name in REASONING_PROVIDER_REGISTRY:
         settings = Settings(_env_file=None, reasoning_provider=name)
-        assert isinstance(build_reasoning_provider(name, settings), provider_type)
+        assert isinstance(build_reasoning_provider(name, settings), ReasoningProvider)
 
 
 def test_factory_builds_the_fake_provider() -> None:

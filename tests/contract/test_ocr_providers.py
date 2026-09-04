@@ -49,7 +49,7 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
 
     from config import build_ocr_provider
 
-    settings = Settings(_env_file=None, ocr_provider=adapter)  # type: ignore[call-arg]
+    settings = Settings(_env_file=None, ocr_provider=adapter)
     return build_ocr_provider(adapter, settings)
 
 

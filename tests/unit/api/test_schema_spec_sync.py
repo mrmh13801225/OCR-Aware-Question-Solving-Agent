@@ -46,6 +46,7 @@ def test_solve_response_fields_match_spec() -> None:
     text = _spec_text()
     section = text.split("**Response**", 1)[1]
     code_block = re.search(r"```json\n(.*?)```", section, re.DOTALL)
+    assert code_block is not None, "spec has no response json block"
     spec_response = set(re.findall(r'"(\w+)":', code_block.group(1)))
     spec_response -= {"null"}
     model_fields = set(BlockResultResponse.model_fields)
