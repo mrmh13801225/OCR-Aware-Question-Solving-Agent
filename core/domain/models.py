@@ -4,7 +4,20 @@ from dataclasses import dataclass
 from typing import Literal
 
 AnswerMapping = Literal["trust_model", "labels_then_position"]
-RunState = Literal["SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED", "PARSE"]
+RunState = Literal[
+    "SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED", "PARSE", "TIMEOUT"
+]
+# Events outside any single solve attempt (PARSE recovery, stream TIMEOUT)
+# carry this sentinel instead of a real index.
+NON_ATTEMPT_INDEX = -1
+
+# A run ends the moment one of these states is observed; everything else
+# is progress the SSE stream keeps following.
+TERMINAL_RUN_STATES: frozenset[str] = frozenset({"DONE", "UNRESOLVED"})
+
+# The block's label vocabulary, positionally ordered. The parser assigns
+# labels from this sequence; the matcher maps answers back into it.
+OPTION_LABELS: tuple[str, ...] = tuple(chr(ord("A") + i) for i in range(8))
 
 
 @dataclass(frozen=True)
@@ -29,11 +42,14 @@ class ParsedBlock:
 
 @dataclass(frozen=True)
 class SolveAttempt:
-    """One solve call's outcome, against the question text used for that attempt."""
+    """One solve call's outcome, against the question text used for that attempt.
+
+    Carries no attempt index by design: the retry loop counts attempts itself
+    (DESIGN.md §5) — an adapter-reported index is never trusted.
+    """
 
     raw_answer: str
     question_text_used: str
-    attempt_index: int
 
 
 @dataclass(frozen=True)

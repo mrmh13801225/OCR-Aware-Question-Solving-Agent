@@ -8,6 +8,7 @@ import time
 from collections import deque
 from collections.abc import Iterator
 
+from core.domain.models import TERMINAL_RUN_STATES
 from core.domain.ports import RunEvent, RunEventListener
 
 MAX_EVENTS_PER_RUN = 200
@@ -29,7 +30,7 @@ class RunEventLog(RunEventListener):
         ring = self._events.setdefault(run_id, deque(maxlen=MAX_EVENTS_PER_RUN))
         ring.append(event)
         self._last_activity[run_id] = time.monotonic()
-        if event.run_state in ("DONE", "UNRESOLVED"):
+        if event.run_state in TERMINAL_RUN_STATES:
             self._finished[run_id] = True
         self._evict()
 

@@ -3,7 +3,7 @@
 import re
 
 from core.domain.errors import ParseError
-from core.domain.models import Option, ParsedBlock
+from core.domain.models import OPTION_LABELS, Option, ParsedBlock
 
 # A line is an option when it starts with a number (any digit script) or a
 # Persian ordinal letter, followed by . ) or a stray RTL paren. Anything else
@@ -16,8 +16,7 @@ _RTL_PAREN_PATTERN = re.compile(r"^\(\s*\d{1,2}\s+(.+)$")
 _LETTER_OPTION_PATTERN = re.compile(r"^(الف|ب|ج|د)\s*[).]\s*(.+)$")
 _LETTER_TO_LABEL = {"الف": "A", "ب": "B", "ج": "C", "د": "D"}
 
-LABELS = "ABCDEFGH"
-_MAX_OPTIONS = len(LABELS)
+_MAX_OPTIONS = len(OPTION_LABELS)
 
 
 def _option_body(line: str) -> tuple[str, str] | None:
@@ -54,7 +53,7 @@ def parse(raw_text: str) -> ParsedBlock:
             continue
         if len(options) >= _MAX_OPTIONS:
             raise ParseError(f"more than {_MAX_OPTIONS} options", raw_text=raw_text)
-        options.append(Option(label=LABELS[len(options)], text=matched[1]))
+        options.append(Option(label=OPTION_LABELS[len(options)], text=matched[1]))
 
     question_text = "\n".join(line for line in question_lines if line)
     if not question_text or len(options) < 2:

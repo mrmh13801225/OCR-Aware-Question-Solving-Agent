@@ -5,21 +5,22 @@ client local_vlm reuses; prompts and correction parsing are shared with the
 Claude adapter so every reasoning provider demands the same contract.
 """
 
-import base64
-
 import httpx
 
 from core.domain.errors import ProviderResponseError
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import ReasoningProvider
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
+from providers.images import data_url
 from providers.reasoning.prompts import (
     correct_system_prompt,
     correct_user_text,
+    options_block,
     solve_system_prompt,
     solve_user_text,
     transcribe_system_prompt,
     transcribe_user_text,
+    with_json_nudge,
 )
 from providers.reasoning.replies import parse_correction_reply
 
@@ -27,6 +28,9 @@ from providers.reasoning.replies import parse_correction_reply
 # reasoning_content before emitting content; a tight budget starves the
 # visible answer to empty. 4096 leaves room for reasoning plus the reply.
 MAX_TOKENS = 4096
+# Measured on the live pass: a correction call against a reasoning gateway
+# took ~7 minutes server-side.
+TIMEOUT_SECONDS = 600.0
 
 
 class OpenAICompatibleReasoningProvider(ReasoningProvider):
@@ -48,28 +52,26 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         self._client = http_client or httpx.Client(
             base_url=self._base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=600.0,  # measured: reasoning models on image+correction can take ~7 minutes
+            timeout=TIMEOUT_SECONDS,
             # local gateways must bypass the proxy; external vendors need it
             trust_env=trust_env_for(self._base_url),
         )
 
     def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
-        option_lines = "\n".join(f"{o.label}) {o.text}" for o in options)
         content = [
-            {"type": "text", "text": solve_user_text(question_text, option_lines)},
+            {"type": "text", "text": solve_user_text(question_text, options_block(options))},
             self._image_part(image),
         ]
         reply = self._chat(solve_system_prompt(), content)
-        return SolveAttempt(
-            raw_answer=reply.strip(), question_text_used=question_text, attempt_index=0
-        )
+        return SolveAttempt(raw_answer=reply.strip(), question_text_used=question_text)
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
-        option_lines = "\n".join(f"{o.label}) {o.text}" for o in block.options)
         content = [
             {
                 "type": "text",
-                "text": correct_user_text(block.question_text, option_lines, failed_answer),
+                "text": correct_user_text(
+                    block.question_text, options_block(block.options), failed_answer
+                ),
             },
             self._image_part(image),
         ]
@@ -104,20 +106,12 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
             return parse_correction_reply(reply, original, provider=provider, strict=strict)
         except ProviderResponseError:
             nudge = dict(content[0])
-            nudge["text"] = (
-                f"{content[0]['text']}\n\nYour previous reply was not a JSON object. "
-                "Respond with ONLY the JSON object, nothing else."
-            )
+            nudge["text"] = with_json_nudge(content[0]["text"])
             reply = self._chat(system, [nudge, *content[1:]])
             return parse_correction_reply(reply, original, provider=provider, strict=strict)
 
     def _image_part(self, image: bytes) -> dict:
-        return {
-            "type": "image_url",
-            "image_url": {
-                "url": "data:image/png;base64," + base64.b64encode(image).decode("utf-8")
-            },
-        }
+        return {"type": "image_url", "image_url": {"url": data_url(image)}}
 
     def _chat(self, system: str, content: list[dict]) -> str:
         response = call_vendor(

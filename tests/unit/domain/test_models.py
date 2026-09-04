@@ -25,11 +25,10 @@ def test_parsed_block_holds_question_options_raw() -> None:
     assert block.raw_text == "raw ocr"
 
 
-def test_solve_attempt_holds_raw_answer_question_text_index() -> None:
-    attempt = SolveAttempt(raw_answer="C", question_text_used="used text", attempt_index=2)
+def test_solve_attempt_holds_raw_answer_and_question_text() -> None:
+    attempt = SolveAttempt(raw_answer="C", question_text_used="used text")
     assert attempt.raw_answer == "C"
     assert attempt.question_text_used == "used text"
-    assert attempt.attempt_index == 2
 
 
 def test_block_result_defaults_unresolved_false() -> None:
@@ -46,7 +45,7 @@ def test_domain_models_are_frozen() -> None:
     cases = [
         (Option("A", "x"), "text"),
         (ParsedBlock("q", [Option("A", "x")], "raw"), "question_text"),
-        (SolveAttempt("A", "q", 0), "raw_answer"),
+        (SolveAttempt("A", "q"), "raw_answer"),
         (BlockResult("A", "q", False, "o"), "answer"),
     ]
     for instance, field_name in cases:

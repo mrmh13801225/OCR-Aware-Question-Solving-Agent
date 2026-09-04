@@ -1,5 +1,6 @@
 """Env-driven settings and the provider factory/registry — the one wiring point."""
 
+from collections.abc import Callable
 from typing import Literal, get_args
 
 from pydantic import Field
@@ -19,6 +20,14 @@ VALID_REASONING = Literal["claude", "openai_compatible", "fake"]
 OCR_PROVIDER_NAMES = get_args(VALID_OCR)
 REASONING_PROVIDER_NAMES = get_args(VALID_REASONING)
 ANSWER_MAPPINGS = get_args(AnswerMapping)
+
+# Image formats every HTTP client of this app accepts from users (CLI batch,
+# run_samples, the web dropzone's accept attribute).
+IMAGE_SUFFIXES: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+
+# The deterministic stand-ins answer with this "model" name; surfaced by the
+# providers route so the UI selector shows something for them.
+FAKE_MODEL_NAME = "fake"
 
 
 class Settings(BaseSettings):
@@ -60,7 +69,7 @@ class FakeReasoningProvider:
 
     def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
         answer = options[0].label if options else "A"
-        return SolveAttempt(raw_answer=answer, question_text_used=question_text, attempt_index=0)
+        return SolveAttempt(raw_answer=answer, question_text_used=question_text)
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
         return block
@@ -71,17 +80,25 @@ class FakeReasoningProvider:
         return ParsedBlock(question_text="", options=[], raw_text="")
 
 
-OCR_PROVIDER_REGISTRY: dict[str, type[OCRProvider]] = {
-    "datalab": DatalabOCRProvider,
-    "fake": FakeOCRProvider,
-    "local_vlm": LocalVLMOCRProvider,
-    "nanonets": NanonetsOCRProvider,
+OCR_PROVIDER_REGISTRY: dict[str, Callable[[Settings], OCRProvider]] = {
+    "datalab": lambda settings: DatalabOCRProvider(api_key=settings.datalab_api_key),
+    "fake": lambda _settings: FakeOCRProvider(),
+    "local_vlm": lambda settings: LocalVLMOCRProvider(
+        base_url=settings.local_vlm_base_url,
+        model=settings.local_vlm_model,
+        api_key=settings.local_vlm_api_key,
+    ),
+    "nanonets": lambda settings: NanonetsOCRProvider(api_key=settings.nanonets_api_key),
 }
 
-REASONING_PROVIDER_REGISTRY: dict[str, type[ReasoningProvider]] = {
-    "claude": ClaudeReasoningProvider,
-    "fake": FakeReasoningProvider,
-    "openai_compatible": OpenAICompatibleReasoningProvider,
+REASONING_PROVIDER_REGISTRY: dict[str, Callable[[Settings], ReasoningProvider]] = {
+    "claude": lambda settings: ClaudeReasoningProvider(api_key=settings.anthropic_api_key),
+    "fake": lambda _settings: FakeReasoningProvider(),
+    "openai_compatible": lambda settings: OpenAICompatibleReasoningProvider(
+        base_url=settings.openai_compat_base_url,
+        api_key=settings.openai_compat_api_key,
+        model=settings.openai_compat_model,
+    ),
 }
 
 
@@ -90,30 +107,14 @@ def _valid_names_error(kind: str, name: str, valid: tuple[str, ...]) -> ValueErr
 
 
 def build_ocr_provider(name: str, settings: Settings) -> OCRProvider:
-    if name not in OCR_PROVIDER_REGISTRY:
+    builder = OCR_PROVIDER_REGISTRY.get(name)
+    if builder is None:
         raise _valid_names_error("OCR", name, tuple(OCR_PROVIDER_REGISTRY))
-    if name == "nanonets":
-        return NanonetsOCRProvider(api_key=settings.nanonets_api_key)
-    if name == "datalab":
-        return DatalabOCRProvider(api_key=settings.datalab_api_key)
-    if name == "local_vlm":
-        return LocalVLMOCRProvider(
-            base_url=settings.local_vlm_base_url,
-            model=settings.local_vlm_model,
-            api_key=settings.local_vlm_api_key,
-        )
-    return OCR_PROVIDER_REGISTRY[name]()
+    return builder(settings)
 
 
 def build_reasoning_provider(name: str, settings: Settings) -> ReasoningProvider:
-    if name not in REASONING_PROVIDER_REGISTRY:
+    builder = REASONING_PROVIDER_REGISTRY.get(name)
+    if builder is None:
         raise _valid_names_error("reasoning", name, tuple(REASONING_PROVIDER_REGISTRY))
-    if name == "claude":
-        return ClaudeReasoningProvider(api_key=settings.anthropic_api_key)
-    if name == "openai_compatible":
-        return OpenAICompatibleReasoningProvider(
-            base_url=settings.openai_compat_base_url,
-            api_key=settings.openai_compat_api_key,
-            model=settings.openai_compat_model,
-        )
-    return REASONING_PROVIDER_REGISTRY[name]()
+    return builder(settings)

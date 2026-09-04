@@ -6,6 +6,9 @@ import json
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from core.domain.models import NON_ATTEMPT_INDEX
+from core.domain.ports import RunEvent
+
 DEFAULT_IDLE_TIMEOUT_SECONDS = 60.0
 POLL_INTERVAL_SECONDS = 0.1
 
@@ -38,12 +41,13 @@ async def stream(run_id: str, request: Request) -> StreamingResponse:
             if not new_events:
                 idle_for += POLL_INTERVAL_SECONDS
                 if idle_for > idle_timeout:
-                    timeout_event = {
-                        "run_state": "TIMEOUT",
-                        "attempt_index": -1,
-                        "detail": "idle expiry",
-                    }
-                    yield f"data: {json.dumps(timeout_event)}\n\n"
+                    yield _sse_payload(
+                        RunEvent(
+                            run_state="TIMEOUT",
+                            attempt_index=NON_ATTEMPT_INDEX,
+                            detail="idle expiry",
+                        )
+                    )
                     return
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
@@ -57,7 +61,7 @@ async def stream(run_id: str, request: Request) -> StreamingResponse:
     )
 
 
-def _sse_payload(event) -> str:
+def _sse_payload(event: RunEvent) -> str:
     payload = json.dumps(
         {
             "run_state": event.run_state,

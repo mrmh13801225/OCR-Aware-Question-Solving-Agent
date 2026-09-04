@@ -106,14 +106,16 @@ class NoiseInjector:
         per_body: dict[int, list[int]] = {}
         for bi, ci in chosen:
             per_body.setdefault(bi, []).append(ci)
-        corrupted = [
+        corrupted_bodies = [
             _corrupt(body, sorted(per_body.get(bi, [])), table, rng)
             for bi, body in enumerate(bodies)
         ]
 
-        question_text = corrupted[0]
+        # bodies[0] is the question; the rest pair 1:1 with the block's options.
+        question_text, *option_bodies = corrupted_bodies
         options = [
-            Option(label=o.label, text=corrupted[i + 1]) for i, o in enumerate(block.options)
+            Option(label=o.label, text=body)
+            for o, body in zip(block.options, option_bodies, strict=True)
         ]
         corrupted_block = replace(block, question_text=question_text, options=options)
         return replace(corrupted_block, raw_text=serialize(corrupted_block))
