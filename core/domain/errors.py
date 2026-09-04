@@ -43,3 +43,7 @@ class ProviderResponseError(ProviderError):
 
 class ProviderTimeoutError(ProviderError):
     """The vendor call exceeded the timeout."""
+
+
+class ProviderConnectionError(ProviderError):
+    """The vendor could not be reached at all — DNS, refused, dropped."""

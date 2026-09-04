@@ -1,11 +1,10 @@
 """Claude reasoning adapter: solve and image-grounded correction over the Anthropic SDK."""
 
-import base64
-
 import anthropic
 
 from core.domain.errors import (
     ProviderAuthError,
+    ProviderConnectionError,
     ProviderError,
     ProviderRateLimitError,
     ProviderResponseError,
@@ -13,13 +12,16 @@ from core.domain.errors import (
 )
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import ReasoningProvider
+from providers.images import PNG_MEDIA_TYPE, png_base64
 from providers.reasoning.prompts import (
     correct_system_prompt,
     correct_user_text,
+    options_block,
     solve_system_prompt,
     solve_user_text,
     transcribe_system_prompt,
     transcribe_user_text,
+    with_json_nudge,
 )
 from providers.reasoning.replies import parse_correction_reply
 
@@ -51,48 +53,35 @@ class ClaudeReasoningProvider(ReasoningProvider):
         self._model = model
 
     def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
-        option_lines = "\n".join(f"{o.label}) {o.text}" for o in options)
         text = self._complete(
-            solve_system_prompt(), solve_user_text(question_text, option_lines), image
+            solve_system_prompt(), solve_user_text(question_text, options_block(options)), image
         )
-        return SolveAttempt(
-            raw_answer=text.strip(),
-            question_text_used=question_text,
-            attempt_index=0,
-        )
+        return SolveAttempt(raw_answer=text.strip(), question_text_used=question_text)
 
     def correct(self, image: bytes, block: ParsedBlock, failed_answer: str) -> ParsedBlock:
-        option_lines = "\n".join(f"{o.label}) {o.text}" for o in block.options)
         system = correct_system_prompt()
-        user_text = correct_user_text(block.question_text, option_lines, failed_answer)
+        user_text = correct_user_text(
+            block.question_text, options_block(block.options), failed_answer
+        )
         payload = self._complete(system, user_text, image)
         try:
             return parse_correction_reply(payload, block, provider="claude")
         except ProviderResponseError:
-            payload = self._complete(
-                system,
-                user_text + "\n\nYour previous reply was not a JSON object. "
-                "Respond with ONLY the JSON object, nothing else.",
-                image,
-            )
-            return parse_correction_reply(payload, block, provider="claude")
+            nudged = self._complete(system, with_json_nudge(user_text), image)
+            return parse_correction_reply(nudged, block, provider="claude")
 
     def transcribe(self, image: bytes) -> ParsedBlock:
         """Re-read the image from scratch: OCR failed to parse, so the model
         produces a fresh transcription the parser can accept."""
         system = transcribe_system_prompt()
-        payload = self._complete(system, transcribe_user_text(), image)
+        user_text = transcribe_user_text()
+        payload = self._complete(system, user_text, image)
         empty = ParsedBlock(question_text="", options=[], raw_text="")
         try:
             return parse_correction_reply(payload, empty, provider="claude", strict=False)
         except ProviderResponseError:
-            payload = self._complete(
-                system,
-                transcribe_user_text() + "\n\nYour previous reply was not a JSON object. "
-                "Respond with ONLY the JSON object, nothing else.",
-                image,
-            )
-            return parse_correction_reply(payload, empty, provider="claude", strict=False)
+            nudged = self._complete(system, with_json_nudge(user_text), image)
+            return parse_correction_reply(nudged, empty, provider="claude", strict=False)
 
     def _complete(self, system: str, user_text: str, image: bytes) -> str:
         try:
@@ -108,8 +97,8 @@ class ClaudeReasoningProvider(ReasoningProvider):
                                 "type": "image",
                                 "source": {
                                     "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": base64.standard_b64encode(image).decode("utf-8"),
+                                    "media_type": PNG_MEDIA_TYPE,
+                                    "data": png_base64(image),
                                 },
                             },
                             {"type": "text", "text": user_text},
@@ -138,7 +127,7 @@ def translate_anthropic_error(exc: Exception, provider: str = "claude") -> Provi
     if isinstance(exc, anthropic.APITimeoutError):
         return ProviderTimeoutError(str(exc), provider=provider)
     if isinstance(exc, anthropic.APIConnectionError):
-        return ProviderTimeoutError(f"connection failed: {exc}", provider=provider)
+        return ProviderConnectionError(f"connection failed: {exc}", provider=provider)
     if isinstance(exc, anthropic.APIStatusError):
         return ProviderResponseError(str(exc), provider=provider)
     return ProviderResponseError(str(exc), provider=provider)

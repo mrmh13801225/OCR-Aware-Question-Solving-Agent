@@ -3,8 +3,8 @@
 import httpx
 import pytest
 
-from core.domain.errors import ProviderResponseError
-from providers.http import json_field, trust_env_for
+from core.domain.errors import ProviderConnectionError, ProviderResponseError, ProviderTimeoutError
+from providers.http import call_vendor, json_field, trust_env_for
 
 
 def test_json_field_tolerates_sse_done_framing() -> None:
@@ -74,8 +74,6 @@ def test_call_vendor_retries_once_on_transient_failure() -> None:
 def test_call_vendor_does_not_retry_http_responses() -> None:
     """Non-2xx responses are deterministic vendor answers; only transport
     errors retry. Status classification is raise_for_status's job."""
-    from providers.http import call_vendor
-
     calls: list[int] = []
 
     def flaky() -> httpx.Response:
@@ -85,6 +83,37 @@ def test_call_vendor_does_not_retry_http_responses() -> None:
     response = call_vendor("test", flaky)
     assert response.status_code == 401
     assert len(calls) == 1
+
+
+def test_call_vendor_exhausted_connect_raises_connection_error() -> None:
+    """A refused/DNS-dead vendor is a connection failure, not a timeout —
+    the typed hierarchy names the quirk instead of mislabeling it."""
+    def dead() -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(ProviderConnectionError):
+        call_vendor("test", dead)
+
+
+def test_call_vendor_exhausted_timeout_raises_timeout_error() -> None:
+    def slow() -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out")
+
+    with pytest.raises(ProviderTimeoutError):
+        call_vendor("test", slow)
+
+
+def test_anthropic_connection_error_maps_to_connection_error() -> None:
+    """The SDK's APIConnectionError is a connection failure — the adapter
+    must not dress it up as a timeout."""
+    import anthropic
+
+    from providers.reasoning.claude import translate_anthropic_error
+
+    exc = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
+    translated = translate_anthropic_error(exc)
+    assert isinstance(translated, ProviderConnectionError)
+    assert not isinstance(translated, ProviderTimeoutError)
 
 
 def test_local_vlm_sends_bearer_token_when_key_given() -> None:

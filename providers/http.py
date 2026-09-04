@@ -14,6 +14,7 @@ import httpx
 
 from core.domain.errors import (
     ProviderAuthError,
+    ProviderConnectionError,
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderTimeoutError,
@@ -88,6 +89,6 @@ def call_vendor(
         raise ProviderTimeoutError(
             str(last_transport_error), provider=provider
         ) from last_transport_error
-    raise ProviderTimeoutError(
+    raise ProviderConnectionError(
         f"connection failed: {last_transport_error}", provider=provider
     ) from last_transport_error
