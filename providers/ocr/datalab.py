@@ -7,6 +7,7 @@ header; the reply carries a request_id; poll GET /api/v1/ocr/{request_id}
 """
 
 import json
+import logging
 import time
 
 import httpx
@@ -19,6 +20,8 @@ from providers.images import upload_file_tuple
 EXTRACT_URL = "https://www.datalab.to/api/v1/ocr"
 TIMEOUT_SECONDS = 120.0
 POLL_INTERVAL_SECONDS = 2.0
+
+logger = logging.getLogger(__name__)
 POLL_LIMIT_SECONDS = 90.0
 
 

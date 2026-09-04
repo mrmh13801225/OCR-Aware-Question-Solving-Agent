@@ -5,13 +5,14 @@ from fastapi.responses import JSONResponse
 
 from api.routes import blocks, providers, stream
 from api.run_registry import RunEventLog
-from config import Settings
+from config import Settings, configure_logging
 from core.domain.errors import ProviderError
 from persistence.json_repository import JSONFileResultRepository
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    configure_logging(settings.log_level, settings.log_file)
     app = FastAPI(title="OCR-Aware Question Solving Agent")
     app.state.run_registry = RunEventLog()
     app.state.repository = JSONFileResultRepository(results_dir=settings.results_dir)

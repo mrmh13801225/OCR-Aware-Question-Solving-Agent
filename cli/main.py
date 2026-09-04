@@ -19,7 +19,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from api.routes.stream import DEFAULT_IDLE_TIMEOUT_SECONDS
-from config import IMAGE_SUFFIXES
+from config import IMAGE_SUFFIXES, SOLVE_MODES
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -91,6 +91,7 @@ def solve(
     image_path: Path = typer.Argument(..., exists=True, readable=True),
     base_url: str = typer.Option(DEFAULT_BASE_URL, "--base-url"),
     inject_noise: bool = typer.Option(False, "--inject-noise"),
+    solve_mode: str = typer.Option(None, "--solve-mode", help="image_grounded | text_only"),
     trace: bool = typer.Option(False, "--trace", help="Stream retry-loop events live."),
 ) -> None:
     """Solve one question block image through the API."""
@@ -100,6 +101,13 @@ def solve(
         "inject_noise": inject_noise,
         "run_id": run_id,
     }
+    if solve_mode is not None:
+        if solve_mode not in SOLVE_MODES:
+            _die(
+                f"unknown solve mode '{solve_mode}'. "
+                f"Valid options: {', '.join(SOLVE_MODES)}."
+            )
+        payload["solve_mode"] = solve_mode
     with http_client_for(base_url) as client:
         if trace:
             with _trace_reader(client, run_id):

@@ -1,5 +1,7 @@
 """Local-VLM OCR adapter: transcription via an OpenAI-compatible vision endpoint."""
 
+import logging
+
 import httpx
 
 from core.domain.errors import ProviderResponseError
@@ -15,6 +17,8 @@ EXTRACT_SYSTEM = (
 MAX_TOKENS = 4096
 # Transcription of a full scan page is the heaviest single call in the pipeline.
 TIMEOUT_SECONDS = 600.0
+
+logger = logging.getLogger(__name__)
 
 
 class LocalVLMOCRProvider(OCRProvider):
@@ -78,4 +82,5 @@ class LocalVLMOCRProvider(OCRProvider):
             raise ProviderResponseError(
                 f"malformed reply from vendor: {exc}", provider="local_vlm"
             ) from exc
+        logger.info("local_vlm extracted: %s", text)
         return OCRText(text=text, provider="local_vlm")

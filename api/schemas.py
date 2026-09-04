@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 
 from config import VALID_OCR, VALID_REASONING
-from core.domain.models import AnswerMapping, BlockResult
+from core.domain.models import AnswerMapping, BlockResult, SolveMode
 
 
 class SolveRequest(BaseModel):
@@ -13,6 +13,7 @@ class SolveRequest(BaseModel):
     ocr_provider: VALID_OCR | None = None
     reasoning_provider: VALID_REASONING | None = None
     answer_mapping: AnswerMapping | None = None
+    solve_mode: SolveMode | None = None
     inject_noise: bool = False
 
 

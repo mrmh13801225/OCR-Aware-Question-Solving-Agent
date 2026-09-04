@@ -5,10 +5,12 @@ client local_vlm reuses; prompts and correction parsing are shared with the
 Claude adapter so every reasoning provider demands the same contract.
 """
 
+import logging
+
 import httpx
 
 from core.domain.errors import ProviderResponseError
-from core.domain.models import Option, ParsedBlock, SolveAttempt
+from core.domain.models import Option, ParsedBlock, SolveAttempt, SolveMode
 from core.domain.ports import ReasoningProvider
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
 from providers.images import data_url
@@ -32,6 +34,8 @@ MAX_TOKENS = 4096
 # took ~7 minutes server-side.
 TIMEOUT_SECONDS = 600.0
 
+logger = logging.getLogger(__name__)
+
 
 class OpenAICompatibleReasoningProvider(ReasoningProvider):
     """ReasoningProvider port implementation over POST /chat/completions.
@@ -46,9 +50,11 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         api_key: str,
         model: str,
         http_client: httpx.Client | None = None,
+        solve_mode: SolveMode = "image_grounded",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._solve_mode = solve_mode
         self._client = http_client or httpx.Client(
             base_url=self._base_url,
             headers={"Authorization": f"Bearer {api_key}"},
@@ -58,10 +64,13 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         )
 
     def solve(self, image: bytes, question_text: str, options: list[Option]) -> SolveAttempt:
+        # text_only mode: the solve judges the OCR text alone; the image still
+        # travels on every correct()/transcribe() call below.
         content = [
-            {"type": "text", "text": solve_user_text(question_text, options_block(options))},
-            self._image_part(image),
+            {"type": "text", "text": solve_user_text(question_text, options_block(options))}
         ]
+        if self._solve_mode == "image_grounded":
+            content.append(self._image_part(image))
         reply = self._chat(solve_system_prompt(), content)
         return SolveAttempt(raw_answer=reply.strip(), question_text_used=question_text)
 
@@ -114,6 +123,11 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         return {"type": "image_url", "image_url": {"url": data_url(image)}}
 
     def _chat(self, system: str, content: list[dict]) -> str:
+        logger.info("openai_compatible prompt [system]: %s", system)
+        for part in content:
+            if part.get("type") == "text":
+                logger.info("openai_compatible prompt [text]: %s", part["text"])
+            # image parts are never logged: payloads of base64 pixels
         response = call_vendor(
             "openai_compatible",
             lambda: self._client.post(
@@ -131,8 +145,10 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
         raise_for_status(response, "openai_compatible")
         data = json_field(response, "openai_compatible")
         try:
-            return data["choices"][0]["message"]["content"]
+            reply = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderResponseError(
                 f"malformed reply from vendor: {exc}", provider="openai_compatible"
             ) from exc
+        logger.info("openai_compatible response: %s", reply)
+        return reply

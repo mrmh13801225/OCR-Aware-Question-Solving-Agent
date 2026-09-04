@@ -60,6 +60,24 @@ def test_invalid_noise_rate_out_of_range_raises(monkeypatch: pytest.MonkeyPatch)
         Settings(_env_file=None)
 
 
+def test_unknown_log_level_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_LEVEL", "WAT")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_configure_logging_sets_the_datic_level() -> None:
+    import logging
+
+    from config import configure_logging
+
+    configure_logging("WARNING")
+    assert logging.getLogger().isEnabledFor(logging.WARNING)
+    assert not logging.getLogger("core.services.retry_loop").isEnabledFor(logging.INFO)
+    configure_logging("INFO")
+    assert logging.getLogger("core.services.retry_loop").isEnabledFor(logging.INFO)
+
+
 def test_env_overrides_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RETRY_CAP", "3")
     monkeypatch.setenv("NOISE_RATE", "0.1")

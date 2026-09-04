@@ -1,5 +1,7 @@
 """Nanonets OCR adapter: full-text extraction over the app.nanonets.com API."""
 
+import logging
+
 import httpx
 
 from core.domain.errors import ProviderResponseError
@@ -9,6 +11,8 @@ from providers.images import upload_file_tuple
 
 EXTRACT_URL = "https://app.nanonets.com/api/v2/OCR/FullText"
 TIMEOUT_SECONDS = 120.0
+
+logger = logging.getLogger(__name__)
 
 
 class NanonetsOCRProvider(OCRProvider):
@@ -41,8 +45,10 @@ def _extracted_text(response: httpx.Response) -> str:
     data = json_field(response, "nanonets")
     try:
         pages = data["result"][0]["page_data"]
-        return "\n".join(page.get("raw_text", "") for page in pages)
+        text = "\n".join(page.get("raw_text", "") for page in pages)
     except (KeyError, IndexError, TypeError) as exc:
         raise ProviderResponseError(
             f"malformed reply from vendor: {exc}", provider="nanonets"
         ) from exc
+    logger.info("nanonets extracted: %s", text)
+    return text

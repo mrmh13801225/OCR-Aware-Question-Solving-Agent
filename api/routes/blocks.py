@@ -32,7 +32,9 @@ def _solve_one(request: Request, body: SolveRequest) -> BlockResultResponse:
     ocr_name = body.ocr_provider or settings.ocr_provider
     reasoning_name = body.reasoning_provider or settings.reasoning_provider
     ocr = build_ocr_provider(ocr_name, settings)
-    reasoning = build_reasoning_provider(reasoning_name, settings)
+    reasoning = build_reasoning_provider(
+        reasoning_name, settings, solve_mode=body.solve_mode
+    )
 
     registry = request.app.state.run_registry
     listener: RunEventListener = _RunListener(registry, body.run_id) if body.run_id else registry

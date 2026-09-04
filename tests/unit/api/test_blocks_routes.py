@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 
 from api.main import create_app
 from config import Settings
+from core.domain.models import ParsedBlock
 from persistence.json_repository import JSONFileResultRepository
 
 IMAGE_B64 = base64.b64encode(b"fake-png-bytes").decode("utf-8")
@@ -92,6 +93,79 @@ async def test_solve_unknown_reasoning_provider_name_returns_422(client) -> None
         json={"image_base64": IMAGE_B64, "reasoning_provider": "nope"},
     )
     assert response.status_code == 422
+
+
+async def test_solve_unknown_solve_mode_returns_422(client) -> None:
+    response = await client.post(
+        "/api/v1/blocks/solve",
+        json={"image_base64": IMAGE_B64, "solve_mode": "nope"},
+    )
+    assert response.status_code == 422
+
+
+async def test_solve_mode_override_reaches_the_factory(client, monkeypatch) -> None:
+    """The per-request solve_mode must select the mode the factory builds
+    with — a capturing fake at the registry seam makes it observable."""
+    from core.domain.models import SolveAttempt
+
+    captured_modes: list[str] = []
+
+    def recording_fake(settings, solve_mode):
+        captured_modes.append(solve_mode)
+
+        class RecordingReasoning:
+            def solve(self, image: bytes, question_text: str, options):
+                return SolveAttempt(raw_answer=options[0].label, question_text_used=question_text)
+
+            def correct(self, image: bytes, block, failed_answer: str):
+                return block
+
+            def transcribe(self, image: bytes):
+                return ParsedBlock(question_text="", options=[], raw_text="")
+
+        return RecordingReasoning()
+
+    import config
+
+    monkeypatch.setitem(config.REASONING_PROVIDER_REGISTRY, "fake", recording_fake)
+    await client.post(
+        "/api/v1/blocks/solve",
+        json={"image_base64": IMAGE_B64, "solve_mode": "text_only"},
+    )
+    assert captured_modes == ["text_only"]
+
+
+async def test_solve_mode_omitted_falls_back_to_settings(client, monkeypatch) -> None:
+    from core.domain.models import ParsedBlock, SolveAttempt
+
+    captured_modes: list[str] = []
+
+    def recording_fake(settings, solve_mode):
+        captured_modes.append(solve_mode)
+
+        class RecordingReasoning:
+            def solve(self, image: bytes, question_text: str, options):
+                return SolveAttempt(raw_answer=options[0].label, question_text_used=question_text)
+
+            def correct(self, image: bytes, block, failed_answer: str):
+                return block
+
+            def transcribe(self, image: bytes):
+                return ParsedBlock(question_text="", options=[], raw_text="")
+
+        return RecordingReasoning()
+
+    import config
+
+    monkeypatch.setitem(config.REASONING_PROVIDER_REGISTRY, "fake", recording_fake)
+    settings_with_mode = Settings(
+        _env_file=None, ocr_provider="fake", reasoning_provider="fake", solve_mode="text_only"
+    )
+    app = create_app(settings=settings_with_mode)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        await http.post("/api/v1/blocks/solve", json={"image_base64": IMAGE_B64})
+    assert captured_modes == ["text_only"]  # from the setting, not the request
 
 
 async def test_solve_provider_overrides_respected(client, monkeypatch) -> None:

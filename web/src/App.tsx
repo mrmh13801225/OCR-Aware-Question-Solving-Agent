@@ -30,7 +30,11 @@ export default function App() {
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo | null>(null);
-  const [overrides, setOverrides] = useState<Overrides>({ ocr_provider: "", reasoning_provider: "" });
+  const [overrides, setOverrides] = useState<Overrides>({
+    ocr_provider: "",
+    reasoning_provider: "",
+    solve_mode: "",
+  });
   const fileInput = useRef<HTMLInputElement>(null);
   const stopStreamRef = useRef<(() => void) | null>(null);
 
@@ -62,6 +66,7 @@ export default function App() {
     () => ({
       ocr_provider: overrides.ocr_provider || null,
       reasoning_provider: overrides.reasoning_provider || null,
+      solve_mode: overrides.solve_mode || null,
     }),
     [overrides],
   );

@@ -1,8 +1,9 @@
-import type { ProviderInfo } from "../api";
+import { SOLVE_MODES, type ProviderInfo } from "../api";
 
 export interface Overrides {
   ocr_provider: string;
   reasoning_provider: string;
+  solve_mode: string;
 }
 
 export function SettingsPanel({
@@ -33,6 +34,26 @@ export function SettingsPanel({
         configured={providers?.configured.reasoning}
         onSelect={(value) => onChange({ ...overrides, reasoning_provider: value })}
       />
+      <label className="flex items-center gap-2 font-mono text-xs">
+        <span className="w-12 text-muted">Solve</span>
+        <select
+          value={overrides.solve_mode}
+          onChange={(e) => onChange({ ...overrides, solve_mode: e.target.value })}
+          className="flex-1 rounded bg-codebg px-2 py-1 text-ink"
+          aria-label="Solve mode"
+        >
+          <option value="">image_grounded (default)</option>
+          {SOLVE_MODES.filter((mode) => mode !== "image_grounded").map((mode) => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-[11px] leading-relaxed text-muted">
+        text_only: the solver judges the OCR text alone — the image is sent only when a
+        correction or transcription re-reads it.
+      </p>
     </div>
   );
 }

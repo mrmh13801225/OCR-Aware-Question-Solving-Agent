@@ -36,6 +36,16 @@ def test_solve_request_rejects_unknown_answer_mapping() -> None:
         SolveRequest(image_base64="abc", answer_mapping="wat")
 
 
+def test_solve_request_rejects_unknown_solve_mode() -> None:
+    with pytest.raises(ValidationError):
+        SolveRequest(image_base64="abc", solve_mode="wat")
+
+
+def test_solve_request_solve_mode_defaults_to_none() -> None:
+    request = SolveRequest(image_base64="abc")
+    assert request.solve_mode is None  # omission falls back to the server's setting
+
+
 def test_solve_response_matches_brief_schema_fields() -> None:
     response = BlockResultResponse(
         answer="C", question_text="q", changed=True, original_ocr_text="o"

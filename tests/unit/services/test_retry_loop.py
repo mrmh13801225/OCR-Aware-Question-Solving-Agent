@@ -1,6 +1,9 @@
 """T2.3 — the retry loop: scripted fake providers, full state matrix, events."""
 
+import logging
 from dataclasses import dataclass, field
+
+import pytest
 
 from core.domain.models import Option, ParsedBlock, SolveAttempt
 from core.domain.ports import OCRText, RunEvent
@@ -73,8 +76,6 @@ class RecordingListener:
 def _loop(
     ocr: FakeOCR, reasoning: ScriptedReasoning, cap: int = 2
 ) -> tuple[RetryLoop, RecordingListener]:
-    listener = RecordingListener()
-    return RetryLoop(ocr, reasoning, listener, retry_cap=cap), listener
     listener = RecordingListener()
     return RetryLoop(ocr, reasoning, listener, retry_cap=cap), listener
 
@@ -258,3 +259,42 @@ def test_parse_failure_exhausting_the_cap_returns_unresolved() -> None:
     assert result.unresolved is True
     assert result.attempts == 0  # no solve call ever ran: honest count, not cap-derived
     assert result.changed is False  # nothing was corrected; the text was never solvable
+
+
+LOOP_LOGGER = "core.services.retry_loop"
+
+
+def _trail(caplog: pytest.LogCaptureFixture) -> str:
+    return "\n".join(
+        record.getMessage() for record in caplog.records if record.name == LOOP_LOGGER
+    )
+
+
+def test_audit_trail_logs_ocr_attempts_and_corrections(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    corrected = ParsedBlock(question_text="کدام شهر ایران؟", options=OPTIONS, raw_text=RAW_TEXT)
+    ocr, reasoning = FakeOCR(), ScriptedReasoning(answers=["Z", "C"], corrections=[corrected])
+    loop, _ = _loop(ocr, reasoning)
+    with caplog.at_level(logging.INFO, logger=LOOP_LOGGER):
+        loop.solve_block(IMG)
+    trail = _trail(caplog)
+    assert "original ocr" in trail and RAW_TEXT in trail  # the OCR text itself
+    assert "attempt 0" in trail and "Z" in trail  # each try: index + raw answer
+    assert "attempt 1" in trail and "C" in trail
+    assert "correction" in trail and "کدام شهر ایران؟" in trail  # what the LLM made of it
+
+
+def test_audit_trail_logs_parse_recovery_transcription(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ocr = FakeOCR(text="garbage without any options")
+    corrected = ParsedBlock(question_text="کدام شهر؟", options=OPTIONS, raw_text="recovered")
+    reasoning = ScriptedReasoning(answers=["C"])
+    reasoning.transcriptions = [corrected]
+    loop, _ = _loop(ocr, reasoning)
+    with caplog.at_level(logging.INFO, logger=LOOP_LOGGER):
+        loop.solve_block(IMG)
+    trail = _trail(caplog)
+    assert "original ocr" in trail and "garbage without any options" in trail
+    assert "transcribe" in trail  # the recovery re-read is part of the trail

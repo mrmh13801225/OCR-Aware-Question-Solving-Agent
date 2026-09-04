@@ -23,8 +23,13 @@ Set `PYTHONUTF8=1` on Windows (the console encoding must handle Persian output).
 Providers are selected via env vars (see `.env.example`): `OCR_PROVIDER` picks the OCR
 adapter (Nanonets, Datalab, or a locally-served vision model), `REASONING_PROVIDER` picks
 the solver (Claude, or any OpenAI-compatible endpoint such as vLLM/Ollama). `RETRY_CAP`
-(default 2), `ANSWER_MAPPING`, `NOISE_RATE`, and `NOISE_SEED` tune the loop; `RESULTS_DIR`
-is where solved blocks persist as flat JSON.
+(default 2), `ANSWER_MAPPING`, `SOLVE_MODE`, `NOISE_RATE`, and `NOISE_SEED` tune the loop;
+`RESULTS_DIR` is where solved blocks persist as flat JSON.
+
+The solve loop logs an audit trail at `INFO`: the original OCR text, every LLM prompt and
+response (solve, correct, transcribe), and each correction the model made. `LOG_LEVEL`
+(default `INFO`; set `WARNING` to quiet it) and `LOG_FILE` (append the trail to a file
+instead of stderr) control it.
 
 ## Running
 

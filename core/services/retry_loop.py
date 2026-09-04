@@ -1,5 +1,6 @@
 """The retry loop: OCR -> parse -> (inject) -> solve/match/correct up to the cap."""
 
+import logging
 from dataclasses import dataclass
 
 from core.domain.errors import ParseError
@@ -15,6 +16,8 @@ from core.services.answer_matcher import matches, resolve_letter
 from core.services.best_guess import pick_best
 from core.services.block_parser import parse
 from core.services.noise_injector import NoiseInjector
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class RetryLoop:
         if extracted is None:
             extracted = self.ocr.extract_text(image)
         original_ocr_text = extracted.text
+        logger.info("original ocr: %s", original_ocr_text)
 
         try:
             block = parse(original_ocr_text)
@@ -63,6 +67,12 @@ class RetryLoop:
             self._emit("SOLVE", attempt_index, block.question_text)
             attempt = self.reasoning.solve(image, block.question_text, block.options)
             attempts.append(attempt)
+            logger.info(
+                "attempt %d answered %r against: %s",
+                attempt_index,
+                attempt.raw_answer,
+                block.question_text,
+            )
 
             self._emit("VERIFY", attempt_index, attempt.raw_answer)
             if matches(attempt.raw_answer, block.options):
@@ -70,7 +80,11 @@ class RetryLoop:
 
             if attempt_index < self.retry_cap:
                 self._emit("CORRECT", attempt_index, attempt.raw_answer)
-                block = self.reasoning.correct(image, block, attempt.raw_answer)
+                corrected = self.reasoning.correct(image, block, attempt.raw_answer)
+                logger.info(
+                    "correction after %r: %s", attempt.raw_answer, corrected.question_text
+                )
+                block = corrected
 
         return self._unresolved(attempts, block, original_ocr_text)
 
@@ -84,6 +98,7 @@ class RetryLoop:
         for attempts in range(self.retry_cap + 1):
             self._emit("PARSE", attempts, "ocr text unparseable; re-reading the image")
             block = self.reasoning.transcribe(image)
+            logger.info("transcribe re-read produced: %s", block.raw_text)
             try:
                 return parse(block.raw_text)
             except ParseError:

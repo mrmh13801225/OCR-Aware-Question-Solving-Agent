@@ -31,6 +31,29 @@ def test_solve_command_sends_image_bytes(tmp_path: Path, base_url: str, request_
     assert sent == b"fake-png-bytes"  # the exact file bytes reach the wire
 
 
+def test_solve_solve_mode_flag_travels_on_the_wire(
+    tmp_path: Path, base_url: str, request_log
+) -> None:
+    image_path = tmp_path / "block.png"
+    image_path.write_bytes(b"fake-png-bytes")
+    result = runner.invoke(
+        app,
+        ["solve", str(image_path), "--base-url", base_url, "--solve-mode", "text_only"],
+    )
+    assert result.exit_code == 0
+    assert request_log.solve_bodies[0]["solve_mode"] == "text_only"
+
+
+def test_solve_without_solve_mode_flag_omits_the_field(
+    tmp_path: Path, base_url: str, request_log
+) -> None:
+    image_path = tmp_path / "block.png"
+    image_path.write_bytes(b"fake-png-bytes")
+    result = runner.invoke(app, ["solve", str(image_path), "--base-url", base_url])
+    assert result.exit_code == 0
+    assert "solve_mode" not in request_log.solve_bodies[0]  # server default applies
+
+
 def test_solve_trace_flag_streams_events(tmp_path: Path, base_url: str) -> None:
     image_path = tmp_path / "q.png"
     image_path.write_bytes(b"fake-png-bytes")

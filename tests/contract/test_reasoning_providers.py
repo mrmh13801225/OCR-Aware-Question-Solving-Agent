@@ -8,6 +8,7 @@ vendor failures to the same typed errors — hermetically, no live keys.
 
 import base64
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,7 +23,8 @@ from core.domain.errors import (
     ProviderResponseError,
     ProviderTimeoutError,
 )
-from core.domain.models import Option, ParsedBlock
+from core.domain.models import Option, ParsedBlock, SolveMode
+from core.domain.ports import ReasoningProvider
 
 # The 'fake' provider is a deterministic in-process stand-in, not an HTTP
 # adapter — the contract suite exercises vendor-shaped adapters only.
@@ -73,7 +75,11 @@ def _mock_handler(adapter: str) -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
-def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
+def _build(
+    adapter: str,
+    handler: Callable[[httpx.Request], httpx.Response],
+    solve_mode: SolveMode | None = None,
+) -> tuple[ReasoningProvider, Callable[[httpx.Request], httpx.Response]]:
     import anthropic
 
     from providers.reasoning.claude import ClaudeReasoningProvider
@@ -82,15 +88,24 @@ def _build(adapter: str, handler: Callable[[httpx.Request], httpx.Response]):
     transport = httpx.Client(transport=httpx.MockTransport(handler))
     if adapter == "claude":
         client = anthropic.Anthropic(api_key="test-key", http_client=transport)
-        return ClaudeReasoningProvider(api_key="test-key", client=client), handler
-    if adapter == "openai_compatible":
-        provider = OpenAICompatibleReasoningProvider(
-            base_url="http://test.local/v1",
-            api_key="test-key",
-            model="test-model",
-            http_client=transport,
+        if solve_mode is None:
+            return ClaudeReasoningProvider(api_key="test-key", client=client), handler
+        return (
+            ClaudeReasoningProvider(api_key="test-key", client=client, solve_mode=solve_mode),
+            handler,
         )
-        return provider, handler
+    if adapter == "openai_compatible":
+        return (
+            OpenAICompatibleReasoningProvider(
+                base_url="http://test.local/v1",
+                api_key="test-key",
+                model="test-model",
+                http_client=transport,
+                solve_mode=solve_mode or "image_grounded",
+            ),
+            handler,
+        )
+    raise ValueError(adapter)
 
     from config import build_reasoning_provider
 
@@ -160,6 +175,65 @@ class TestReasoningContract:
 
         provider, _ = _build(adapter, capturing)
         provider.transcribe(IMAGE)
+        flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
+        assert base64.b64encode(IMAGE).decode() in flat
+
+    def test_solve_logs_prompt_and_response(self, adapter: str, caplog) -> None:
+        provider, _ = _build(adapter, _mock_handler(adapter))
+        with caplog.at_level(logging.INFO, logger="providers"):
+            provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        trail = "\n".join(record.getMessage() for record in caplog.records)
+        assert BLOCK.question_text in trail  # the prompt's text part
+        assert "C" in trail  # the response content
+
+    def test_correct_logs_prompt_and_response(self, adapter: str, caplog) -> None:
+        provider, _ = _build(adapter, _mock_handler(adapter))
+        with caplog.at_level(logging.INFO, logger="providers"):
+            provider.correct(IMAGE, BLOCK, "Z")
+        trail = "\n".join(record.getMessage() for record in caplog.records)
+        assert BLOCK.question_text in trail  # prompt carries the block
+        assert "question_text" in trail  # response is the correction JSON
+
+    @pytest.mark.parametrize("solve_mode", ["image_grounded", "text_only"])
+    def test_correct_is_always_image_grounded(self, adapter: str, solve_mode: SolveMode) -> None:
+        """The mode's whole point: whatever solve sees, the correction re-reads
+        the image — in both modes."""
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "correct_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing, solve_mode=solve_mode)
+        provider.correct(IMAGE, BLOCK, "Z")
+        flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
+        assert base64.b64encode(IMAGE).decode() in flat
+
+    def test_text_only_solve_omits_the_image(self, adapter: str) -> None:
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "solve_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing, solve_mode="text_only")
+        provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+        flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
+        assert BLOCK.question_text in flat  # the OCR text still travels
+        assert base64.b64encode(IMAGE).decode() not in flat  # but not the pixels
+
+    def test_default_solve_mode_is_image_grounded(self, adapter: str) -> None:
+        seen: dict[str, httpx.Request] = {}
+
+        def capturing(request: httpx.Request) -> httpx.Response:
+            seen["req"] = request
+            path = _fixture_path(adapter, "solve_ok")
+            return httpx.Response(200, json=json.loads(path.read_text(encoding="utf-8")))
+
+        provider, _ = _build(adapter, capturing)
+        provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
         flat = json.dumps(json.loads(seen["req"].content.decode("utf-8")), ensure_ascii=False)
         assert base64.b64encode(IMAGE).decode() in flat
 

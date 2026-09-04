@@ -16,7 +16,11 @@ export interface SolveOutcome {
 export interface SolveOverrides {
   ocr_provider?: string | null;
   reasoning_provider?: string | null;
+  solve_mode?: string | null;
 }
+
+/** The solve modes the server accepts — mirrors config.SOLVE_MODES. */
+export const SOLVE_MODES = ["image_grounded", "text_only"] as const;
 
 /** The API surface this app talks to — one home for every path literal. */
 export const API_ENDPOINTS = {

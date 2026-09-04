@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 AnswerMapping = Literal["trust_model", "labels_then_position"]
+# What the solve call sees. image_grounded: the scan image + the OCR text
+# (default). text_only: the OCR text alone — the image travels only when the
+# loop corrects or transcribes, which is when the brief demands re-reading.
+SolveMode = Literal["image_grounded", "text_only"]
 RunState = Literal[
     "SOLVE", "VERIFY", "CORRECT", "DONE", "UNRESOLVED", "PARSE", "TIMEOUT"
 ]
