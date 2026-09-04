@@ -222,3 +222,9 @@ results/
 
 # Frontend
 node_modules/
+
+# Debug output from live-run sessions (not part of the deliverable)
+dbg-results/
+
+# results/ is ignored for runtime output, but the graded deliverable artifact
+# results/samples.jsonl is committed deliberately (see scripts/run_samples.py).

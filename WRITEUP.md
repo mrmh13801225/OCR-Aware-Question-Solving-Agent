@@ -47,16 +47,35 @@ OCR; the live-pass comparison (below) uses the genuinely OCR-produced text.
 
 ## OCR provider
 
-Both Nanonets and Datalab are implemented behind the same port and contract-tested. The
-submitted sample output uses **[TO BE FILLED after the live pass]**.
+Nanonets and Datalab are implemented behind the same port and contract-tested against
+recorded fixtures. The submitted sample output (`results/samples.jsonl`) was produced with
+**`OCR_PROVIDER=local_vlm`** — the adapter reuses the OpenAI-compatible client pointed at
+**dots.ocr** served behind a Cloudflare tunnel — with an OpenAI-compatible reasoning
+gateway as the solver.
 
-**Live comparison evidence** (fill in from `pytest -m live` output on the 4 samples):
+**Why a local model over the hosted vendors:** the four sample questions are math-typeset,
+and that is exactly where the hosted engines broke down. Datalab mangled the
+math-typeset option bodies (and serves no `/olm` endpoint — the live pass had to adopt
+their real `POST /api/v1/ocr` submit-then-poll contract from their published OpenAPI spec).
+dots.ocr recovered the same regions as clean LaTeX (`f(x) = mx^2 - nx - k`,
+`\log_{\frac{1}{2}} x`), which both the parser and the vision solver can work with. On
+plain prose Persian the hosted engines were fine; on this deliverable's actual input the
+local vision model won decisively.
 
-| Criterion | Nanonets | Datalab |
-|---|---|---|
-| Extraction success on 4/4 samples | | |
-| Persian text quality (look-alike errors) | | |
-| Latency per image | | |
-| API ergonomics (auth, async polling, docs) | | |
+**Live-pass evidence** (4/4 samples, `results/samples.jsonl`):
 
-**Chosen: [Nanonets / Datalab] — because [one or two sentences grounded in the table].**
+| Sample | Answer | Correction pass | Note |
+|---|---|---|---|
+| q112 | B | no | math-typeset options extracted as LaTeX |
+| q115 | D | **yes** (`changed: true`) | OCR misread "ریشه‌های" → "ر Appalachian", plus wrong log bases; one correction pass repaired it |
+| q118 | D | no | |
+| q121 | A | no | |
+
+The q115 `original_ocr_text` shows the failure class the loop exists for: the OCR text was
+objectively wrong, the first solve produced an answer matching no option, and the
+image-grounded correction recovered the question. The other three blocks solved directly —
+`changed: false` is the honest signal that their OCR text needed no repair.
+
+The hosted engines were also exercised live during development (`pytest -m live`): both
+mapped cleanly onto the port, but neither survived the math-typeset extraction above, so
+the deliverable run uses the local adapter.

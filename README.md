@@ -50,9 +50,11 @@ cd web && npm install && npm run dev     # proxies /api to the server above
 
 ## OCR provider used
 
-Nanonets and Datalab are both implemented and contract-tested; the submitted sample output
-was produced with **`OCR_PROVIDER` = the winner of the live comparison below** (fill in
-after the live pass — see `WRITEUP.md` for the comparison criteria and result).
+Nanonets and Datalab are both implemented and contract-tested. The submitted sample output
+was produced with **`OCR_PROVIDER=local_vlm`** pointed at **dots.ocr** (behind a tunnel),
+with an OpenAI-compatible reasoning gateway as the solver — the four sample questions are
+math-typeset, and dots.ocr recovered them as LaTeX where the hosted engines mangled the
+option bodies. The full comparison and per-sample evidence are in `WRITEUP.md`.
 
 ## Producing the required sample output
 
@@ -65,10 +67,13 @@ python scripts/run_samples.py --samples tests/fixtures/samples --out results/sam
 One JSON object per sample block, exactly the brief's schema:
 `{"answer", "question_text", "changed", "original_ocr_text"}`.
 
+The committed `results/samples.jsonl` is the deliverable run's output (4 samples, B/D/D/A,
+one correction pass on q115).
+
 ## Tests
 
 ```
-pytest              # 180 mocked tests, no API keys needed
+pytest              # 208 mocked tests, no API keys needed
 pytest -m live      # live E2E against real provider keys — run once before submitting
 ```
 
