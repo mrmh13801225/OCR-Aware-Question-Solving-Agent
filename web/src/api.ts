@@ -18,25 +18,54 @@ export interface SolveOverrides {
   reasoning_provider?: string | null;
 }
 
+/** The API surface this app talks to — one home for every path literal. */
+export const API_ENDPOINTS = {
+  solve: "/api/v1/blocks/solve",
+  batch: "/api/v1/blocks/batch",
+  providers: "/api/v1/providers",
+  stream: (runId: string) => `/api/v1/blocks/${runId}/stream`,
+} as const;
+
+interface ApiOutcome<T> {
+  ok: boolean;
+  result?: T;
+  results?: T[];
+  error?: string;
+}
+
+/** Shared fetch-and-classify: the try/ok/catch shape solveBlock and
+ * solveBatch both used to repeat. */
+async function request<T>(
+  path: string,
+  body: unknown,
+  transform: (payload: unknown) => ApiOutcome<T>,
+): Promise<ApiOutcome<T>> {
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      return { ok: false, error: `API error ${response.status}: ${await response.text()}` };
+    }
+    return transform(await response.json());
+  } catch (err) {
+    return { ok: false, error: `cannot reach the API: ${(err as Error).message}` };
+  }
+}
+
 export async function solveBlock(
   apiBase: string,
   imageBase64: string,
   runId: string,
   overrides: SolveOverrides = {},
 ): Promise<SolveOutcome> {
-  try {
-    const response = await fetch(`${apiBase}/api/v1/blocks/solve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_base64: imageBase64, run_id: runId, ...overrides }),
-    });
-    if (!response.ok) {
-      return { ok: false, error: `API error ${response.status}: ${await response.text()}` };
-    }
-    return { ok: true, result: (await response.json()) as BlockResult };
-  } catch (err) {
-    return { ok: false, error: `cannot reach the API: ${(err as Error).message}` };
-  }
+  return request<BlockResult>(
+    `${apiBase}${API_ENDPOINTS.solve}`,
+    { image_base64: imageBase64, run_id: runId, ...overrides },
+    (payload) => ({ ok: true, result: payload as BlockResult }),
+  );
 }
 
 export async function solveBatch(
@@ -44,26 +73,17 @@ export async function solveBatch(
   images: { id: string; imageBase64: string }[],
   overrides: SolveOverrides = {},
 ): Promise<{ ok: boolean; results?: BlockResult[]; error?: string }> {
-  try {
-    const response = await fetch(`${apiBase}/api/v1/blocks/batch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        blocks: images.map((image) => ({
-          image_base64: image.imageBase64,
-          run_id: `web-batch-${image.id}`,
-          ...overrides,
-        })),
-      }),
-    });
-    if (!response.ok) {
-      return { ok: false, error: `API error ${response.status}: ${await response.text()}` };
-    }
-    const body = (await response.json()) as { results: BlockResult[] };
-    return { ok: true, results: body.results };
-  } catch (err) {
-    return { ok: false, error: `cannot reach the API: ${(err as Error).message}` };
-  }
+  return request<BlockResult>(
+    `${apiBase}${API_ENDPOINTS.batch}`,
+    {
+      blocks: images.map((image) => ({
+        image_base64: image.imageBase64,
+        run_id: `web-batch-${image.id}`,
+        ...overrides,
+      })),
+    },
+    (payload) => ({ ok: true, results: (payload as { results: BlockResult[] }).results }),
+  );
 }
 
 export interface ProviderInfo {
@@ -75,10 +95,15 @@ export interface ProviderInfo {
 
 export async function fetchProviders(apiBase: string): Promise<ProviderInfo | null> {
   try {
-    const response = await fetch(`${apiBase}/api/v1/providers`);
+    const response = await fetch(`${apiBase}${API_ENDPOINTS.providers}`);
     if (!response.ok) return null;
     return (await response.json()) as ProviderInfo;
   } catch {
     return null;
   }
+}
+
+/** The base64 payload of a data: URL — the FileReader result's tail. */
+export function base64FromDataUrl(dataUrl: string): string {
+  return dataUrl.split(",")[1];
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { hasChanges, wordDiff } from "../wordDiff";
+import { DiffWords } from "./DiffWords";
 
 type Tab = "ocr" | "image";
 
@@ -55,41 +55,15 @@ function OcrText({
   ocrText: string;
   finalQuestionText: string | null;
 }) {
-  if (!finalQuestionText) {
-    return (
-      <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
-        {ocrText}
-      </p>
-    );
-  }
-  const changes = wordDiff(ocrText, finalQuestionText);
-  if (!hasChanges(changes)) {
-    return (
-      <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
-        {ocrText}
-      </p>
-    );
-  }
   return (
-    <p dir="rtl" className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink">
-      {changes.map((change, index) => {
-        if (change.type === "same") {
-          return <span key={index}>{change.text} </span>;
-        }
-        if (change.type === "removed") {
-          return (
-            <mark key={index} className="rounded bg-suspect/30 px-0.5 text-ink">
-              {change.text}{" "}
-            </mark>
-          );
-        }
-        return (
-          <span key={index} className="text-suspect">
-            {change.text}{" "}
-          </span>
-        );
-      })}
-    </p>
+    <DiffWords
+      previous={ocrText}
+      current={finalQuestionText ?? ocrText}
+      rtl
+      className="whitespace-pre-wrap font-farsi text-base leading-loose text-ink"
+      removedClassName="rounded bg-suspect/30 px-0.5 text-ink"
+      addedClassName="text-suspect"
+    />
   );
 }
 

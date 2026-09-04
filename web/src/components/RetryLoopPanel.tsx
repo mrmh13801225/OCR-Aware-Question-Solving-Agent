@@ -1,18 +1,19 @@
 import type { BlockResult } from "../api";
-import type { RunEvent } from "../runStream";
-import { hasChanges, wordDiff } from "../wordDiff";
+import { RUN_STATE, TERMINAL_RUN_STATES } from "../runStates";
+import type { RunEvent } from "../runStates";
+import { DiffWords } from "./DiffWords";
 
 export interface TimedRunEvent extends RunEvent {
   arrivedAt: number;
 }
 
 const STATE_LABELS: Record<string, string> = {
-  OCR: "ocr extract",
-  SOLVE: "solve",
-  VERIFY: "verify",
-  CORRECT: "correct",
-  DONE: "done",
-  UNRESOLVED: "unresolved",
+  [RUN_STATE.OCR]: "ocr extract",
+  [RUN_STATE.SOLVE]: "solve",
+  [RUN_STATE.VERIFY]: "verify",
+  [RUN_STATE.CORRECT]: "correct",
+  [RUN_STATE.DONE]: "done",
+  [RUN_STATE.UNRESOLVED]: "unresolved",
 };
 
 export function RetryLoopPanel({
@@ -52,7 +53,7 @@ export function RetryLoopPanel({
 /** The question text a correction edited: the SOLVE event's detail before this node. */
 function previousQuestionText(events: TimedRunEvent[], index: number): string | null {
   for (let i = index - 1; i >= 0; i--) {
-    if (events[i].run_state === "SOLVE") return events[i].detail;
+    if (events[i].run_state === RUN_STATE.SOLVE) return events[i].detail;
   }
   return null;
 }
@@ -88,9 +89,9 @@ function TraceNode({
 }
 
 function dotColor(state: string): string {
-  if (state === "DONE") return "bg-verified";
-  if (state === "UNRESOLVED") return "bg-suspect";
-  if (state === "CORRECT") return "bg-proof";
+  if (state === RUN_STATE.DONE) return "bg-verified";
+  if (state === RUN_STATE.UNRESOLVED) return "bg-suspect";
+  if (state === RUN_STATE.CORRECT) return "bg-proof";
   return "bg-edge";
 }
 
@@ -110,7 +111,7 @@ function EventBody({
   result: BlockResult | null;
   isTerminal: boolean;
 }) {
-  if (event.run_state === "OCR") {
+  if (event.run_state === RUN_STATE.OCR) {
     return (
       <div className="mt-1 inline-flex items-center gap-1.5 rounded bg-codebg px-2 py-1">
         <DocumentIcon />
@@ -120,23 +121,39 @@ function EventBody({
       </div>
     );
   }
-  if (event.run_state === "VERIFY") {
+  if (event.run_state === RUN_STATE.VERIFY) {
     return <p className="mt-0.5 font-mono text-[11px] text-muted">answered {event.detail}</p>;
   }
-  if (event.run_state === "CORRECT") {
+  if (event.run_state === RUN_STATE.CORRECT) {
     return (
       <div className="mt-1">
         <span className="inline-flex items-center gap-1 rounded bg-proof/10 px-2 py-0.5 font-mono text-[10px] text-proof">
           <XMark /> no option match
         </span>
-        {previousText && <DiffText previous={previousText} current={event.detail} rtl />}
+        {previousText && (
+          <DiffWords
+            previous={previousText}
+            current={event.detail}
+            rtl
+            className="mt-1 font-farsi text-xs leading-loose text-ink"
+            removedClassName="text-proof line-through opacity-80"
+            addedClassName="font-bold text-proof"
+          />
+        )}
       </div>
     );
   }
-  if (isTerminal && result && (event.run_state === "DONE" || event.run_state === "UNRESOLVED")) {
+  if (isTerminal && result && TERMINAL_RUN_STATES.has(event.run_state)) {
     return (
       <div className="mt-1">
-        <DiffText previous={previousText ?? event.detail} current={result.question_text} rtl />
+        <DiffWords
+          previous={previousText ?? event.detail}
+          current={result.question_text}
+          rtl
+          className="mt-1 font-farsi text-xs leading-loose text-ink"
+          removedClassName="text-proof line-through opacity-80"
+          addedClassName="font-bold text-proof"
+        />
         <span className="stamp-rotate mt-2 inline-block rounded border-2 px-2 py-0.5 font-mono text-[10px] font-bold tracking-widest text-proof border-proof">
           {stampLabel(result)}
         </span>
@@ -152,52 +169,14 @@ function EventBody({
 
 function stampLabel(result: BlockResult): string {
   if (result.unresolved) return "UNRESOLVED";
-  if (result.changed) return `CHANGED · ${result.attempts - 1}`;
+  if (result.changed) return `CHANGED · ${correctionCount(result)}`;
   return "UNCHANGED";
 }
 
-/**
- * Red-ink proofreading marks: struck-through original, red replacement.
- * Renders plain text when the two sides are identical or a side is missing.
- */
-function DiffText({
-  previous,
-  current,
-  rtl,
-}: {
-  previous: string;
-  current: string;
-  rtl?: boolean;
-}) {
-  const changes = wordDiff(previous, current);
-  if (!hasChanges(changes)) {
-    return (
-      <p dir={rtl ? "rtl" : "auto"} className="mt-0.5 line-clamp-2 font-farsi text-xs text-muted">
-        {current}
-      </p>
-    );
-  }
-  return (
-    <p dir={rtl ? "rtl" : "auto"} className="mt-1 font-farsi text-xs leading-loose text-ink">
-      {changes.map((change, index) => {
-        if (change.type === "same") {
-          return <span key={index}>{change.text} </span>;
-        }
-        if (change.type === "removed") {
-          return (
-            <span key={index} className="text-proof line-through opacity-80">
-              {change.text}{" "}
-            </span>
-          );
-        }
-        return (
-          <span key={index} className="font-bold text-proof">
-            {change.text}{" "}
-          </span>
-        );
-      })}
-    </p>
-  );
+/** Corrections that ran: solve attempts minus the initial solve, floored at
+ * zero for the honest unresolved-with-zero-attempts result. */
+function correctionCount(result: BlockResult): number {
+  return Math.max(0, result.attempts - 1);
 }
 
 function DocumentIcon() {
