@@ -29,7 +29,7 @@ from providers.reasoning.replies import parse_correction_reply
 # Reasoning models (GLM, DeepSeek-R1 class) spend hundreds of tokens in
 # reasoning_content before emitting content; a tight budget starves the
 # visible answer to empty. 4096 leaves room for reasoning plus the reply.
-MAX_TOKENS = 64000
+MAX_TOKENS = 63975
 # Measured on the live pass: a correction call against a reasoning gateway
 # took ~7 minutes server-side.
 TIMEOUT_SECONDS = 600.0
