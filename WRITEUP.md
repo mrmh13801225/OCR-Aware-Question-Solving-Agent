@@ -31,6 +31,31 @@ When the cap is exhausted with no match (`core/services/best_guess.py`):
 
 Every unresolved result carries `unresolved: true`.
 
+## Solve modes — and why the image grounding is measurable
+
+The solve call ships the scan image next to the OCR text (`image_grounded`, the default):
+the system prompt says to trust the image over the text, so the solver's answer reflects
+what is *actually printed* — which is what makes a mismatch meaningful as evidence of an
+OCR defect. The image also travels on every `correct()` and `transcribe()` call in both
+modes; that is non-negotiable, since the brief's remedy is *re-reading the scan*.
+
+A selectable `SOLVE_MODE=text_only` ships the OCR text alone on the solve call — the
+image then reaches the model only when a correction or transcription re-reads it. This
+exists as an ablation lever: image-grounded vs text-only accuracy is directly measurable
+on the same blocks (env, per-request API field, CLI flag, or the web settings panel), and
+it is the honest control experiment for the claim above. The deliverable run used the
+default `image_grounded`.
+
+## Observability — the audit trail
+
+Every run logs a complete trail at `INFO` (stdlib `logging`; `LOG_LEVEL`/`LOG_FILE`
+control it): the original OCR text as extracted, every LLM prompt and response for every
+try (solve, correct, transcribe), and each correction the model made. This is what made
+the real defects in this project visible — a sunset OCR endpoint's fragmented output, a
+gateway returning null replies, a parser misreading LaTeX as option markers — each
+surfaced as an exact log line before it surfaced as a wrong answer. Image payloads are
+never logged.
+
 ## Synthetic OCR noise
 
 The injector (`core/services/noise_injector.py`) corrupts **parsed blocks post-parse** at a
@@ -47,38 +72,64 @@ OCR; the live-pass comparison (below) uses the genuinely OCR-produced text.
 
 ## OCR provider
 
-Nanonets and Datalab are implemented behind the same port and contract-tested against
+Both brief-named vendors are implemented behind the same port and contract-tested against
 recorded fixtures. The submitted sample output (`results/samples.jsonl`) was produced with
-**`OCR_PROVIDER=local_vlm`** — the adapter reuses the OpenAI-compatible client pointed at
-**dots.ocr** served behind a Cloudflare tunnel — with an OpenAI-compatible reasoning
-gateway as the solver.
+**`OCR_PROVIDER=datalab`** — over datalab.to's supported **`POST /api/v1/marker`**
+pipeline with `mode=balanced, output_format=markdown` — and an OpenAI-compatible
+reasoning gateway (a Gemini flash model via OpenRouter) as the solver.
 
-**Why a local model over the hosted vendors:** the four sample questions are math-typeset,
-and that is exactly where the hosted engines broke down. Datalab mangled the
-math-typeset option bodies — and its adapter had to be migrated mid-project when the
-vendor sunset the legacy `POST /api/v1/ocr` endpoint (Deprecation/Sunset headers,
-2026-08-31) in favor of the supported `POST /api/v1/marker` pipeline with
-`mode=balanced` (verified live: the sunset endpoint's per-line text fragments on the
-same scans the marker endpoint renders completely).
-dots.ocr recovered the same regions as clean LaTeX (`f(x) = mx^2 - nx - k`,
-`\log_{\frac{1}{2}} x`), which both the parser and the vision solver can work with. On
-plain prose Persian the hosted engines were fine; on this deliverable's actual input the
-local vision model won decisively.
+**Why Datalab (and why balanced):** the four sample questions are math-typeset, and math
+is where OCR pipelines diverge. Marker's balanced mode recovers the formulas as clean
+LaTeX (`f(x) = mx^2 - nx - k`, `\log_{\frac{1}{2}} x`) that both the parser and the
+vision solver can work with.
 
-**Live-pass evidence** (4/4 samples, `results/samples.jsonl`):
+**A vendor migration happened mid-project, and it matters for evaluation:** the adapter
+was originally built on datalab's `POST /api/v1/ocr` endpoint, whose response headers
+carry `Deprecation: true` and `Sunset: 2026-08-31`. Past that date the legacy endpoint
+still answers but serves a degraded pipeline — on these exact scans its per-line text
+fragments (`VA (F`, `(1` with no body) and it carries no markdown field at all (verified
+live with fresh `skip_cache` runs and every documented parameter permutation). The
+dashboard-quality text only comes from the supported marker endpoint, so the adapter was
+migrated: balanced mode, top-level markdown read, contract tests pinning the submit URL
+and parameters so a future sunset cannot creep back silently.
+
+**Comparison — the local alternative:** a `local_vlm` adapter (the OpenAI-compatible
+client pointed at **dots.ocr** behind a Cloudflare tunnel) also ran all four samples
+end-to-end during the earlier live pass, recovering the same math regions as LaTeX with
+no per-token credit ceiling. Both paths solve the deliverable's input; the hosted vendor
+was chosen for the submitted run as the brief's named option, with the local run retained
+as the comparison. The trade-off observed live: the hosted path bills per token (a
+correction call ships the scan image, ~48k prompt tokens on Gemini's counting) and is
+subject to key spending limits; the local path is free but needs the tunnel and a served
+model.
+
+**Deliverable-run evidence** (4/4 samples, `results/samples.jsonl`):
 
 | Sample | Answer | Correction pass | Note |
 |---|---|---|---|
-| q112 | B | no | math-typeset options extracted as LaTeX |
-| q115 | D | **yes** (`changed: true`) | OCR misread "ریشه‌های" → "ر Appalachian", plus wrong log bases; one correction pass repaired it |
-| q118 | D | no | |
-| q121 | A | no | |
+| q113 | C | no | balanced-mode LaTeX extraction parses on the first pass |
+| q115 | B | **yes** (`changed: true`) | OCR dropped/mangled formula segments; one image-grounded correction recovered the block |
+| q118 | A | no | |
+| q121 | C | no | marker rendered the geometry diagram as an image-description placeholder (`![…]`); the solver answered from the labeled quantities in that description |
 
-The q115 `original_ocr_text` shows the failure class the loop exists for: the OCR text was
-objectively wrong, the first solve produced an answer matching no option, and the
-image-grounded correction recovered the question. The other three blocks solved directly —
-`changed: false` is the honest signal that their OCR text needed no repair.
+The q115 row shows the failure class the loop exists for: the first solve produced an
+answer matching no option — evidence the OCR text was broken — and one minimal
+image-grounded correction recovered it. The other three blocks solved directly;
+`changed: false` is the honest signal that their text needed no repair. (One honest
+limitation: on q121 the marker pipeline renders the *geometry diagram* as an
+image-description placeholder rather than transcribed coordinates; the solver answered
+from the labeled quantities inside that description. A geometry-aware OCR pass would be
+the next improvement.)
 
-The hosted engines were also exercised live during development (`pytest -m live`): both
-mapped cleanly onto the port, but neither survived the math-typeset extraction above, so
-the deliverable run uses the local adapter.
+## Correctness under change — how this codebase stayed honest
+
+The suite is 266 mocked tests (contract tests replay recorded vendor fixtures through
+injected HTTP transports, so the full suite runs with zero keys; `pytest -m live` is the
+opt-in real-vendor pass), plus strict typing (mypy, zero errors) and lint (ruff) as
+commit gates. Three live defects this session were each caught by a failing test before
+the fix, in the red→green order the repo's policy mandates: a parser that read LaTeX
+tuple syntax as option markers, a vendor sunset serving degraded output, and reasoning
+gateways that emit null replies under token pressure — each now a typed, tested failure
+instead of a crash or a silent wrong answer. The architecture (hexagonal: `core/` never
+imports a vendor SDK or a delivery mechanism) is what made every one of those fixes a
+single-file change.

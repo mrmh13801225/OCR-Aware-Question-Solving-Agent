@@ -55,30 +55,31 @@ cd web && npm install && npm run dev     # proxies /api to the server above
 
 ## OCR provider used
 
-Nanonets and Datalab are both implemented and contract-tested. The submitted sample output
-was produced with **`OCR_PROVIDER=local_vlm`** pointed at **dots.ocr** (behind a tunnel),
-with an OpenAI-compatible reasoning gateway as the solver — the four sample questions are
-math-typeset, and dots.ocr recovered them as LaTeX where the hosted engines mangled the
-option bodies. The full comparison and per-sample evidence are in `WRITEUP.md`.
+The submitted sample output was produced with **`OCR_PROVIDER=datalab`** — datalab.to's
+supported `POST /api/v1/marker` pipeline with `mode=balanced` — and an OpenAI-compatible
+reasoning gateway as the solver. Nanonets and Datalab are both implemented and
+contract-tested; a local `local_vlm` adapter (dots.ocr) also ran all four samples as a
+comparison. The full story — including a mid-project migration off datalab's sunset
+`/api/v1/ocr` endpoint — and per-sample evidence are in `WRITEUP.md`.
 
 ## Producing the required sample output
 
 With the API server running:
 
 ```
-python scripts/run_samples.py --samples tests/fixtures/samples --out results/samples.jsonl
+python -m scripts.run_samples --samples tests/fixtures/samples --out results/samples.jsonl
 ```
 
 One JSON object per sample block, exactly the brief's schema:
 `{"answer", "question_text", "changed", "original_ocr_text"}`.
 
-The committed `results/samples.jsonl` is the deliverable run's output (4 samples, B/D/D/A,
+The committed `results/samples.jsonl` is the deliverable run's output (4 samples, C/B/A/C,
 one correction pass on q115).
 
 ## Tests
 
 ```
-pytest              # 208 mocked tests, no API keys needed
+pytest              # 266 mocked tests, no API keys needed
 pytest -m live      # live E2E against real provider keys — run once before submitting
 ```
 
