@@ -243,10 +243,42 @@ def test_parse_failure_asks_reasoning_to_reread_the_image() -> None:
     assert result.answer == "C"
     assert result.question_text == "کدام شهر؟"
     assert result.original_ocr_text == "garbage without any options"
-    assert result.changed is False  # no correction pass occurred; OCR was unreadable
+    # the transcription replaced the OCR text wholesale: changed is true even
+    # though no correction pass ran (no corrections, attempts == 1)
+    assert result.changed is True
+    assert result.attempts == 1
     states = [e.run_state for e in listener.events]
     assert states[0] == "PARSE"  # parse failure surfaced as an event
     assert states.count("SOLVE") == 1
+
+
+def test_recovered_transcription_counts_as_changed() -> None:
+    # The transcription REPLACES the OCR text — the result's question_text is
+    # the model's transcription, not the original. Reporting unchanged would
+    # claim the pipeline never altered the text when it replaced it wholesale.
+    ocr = FakeOCR(text="garbage without any options")
+    recovered_raw = "کدام شهر؟\n۱) تهران\n۲) مشهد\n۳) اصفهان\n۴) تبریز"
+    recovered = ParsedBlock(question_text="کدام شهر؟", options=OPTIONS, raw_text=recovered_raw)
+    reasoning = ScriptedReasoning(answers=["C"])
+    reasoning.transcriptions = [recovered]
+    loop, _ = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.answer == "C"
+    assert result.changed is True
+    assert result.question_text == "کدام شهر؟"
+    assert result.original_ocr_text == "garbage without any options"
+
+
+def test_recovered_transcription_counts_as_changed_even_when_unresolved() -> None:
+    ocr = FakeOCR(text="garbage without any options")
+    recovered_raw = "کدام شهر؟\n۱) تهران\n۲) مشهد\n۳) اصفهان\n۴) تبریز"
+    recovered = ParsedBlock(question_text="کدام شهر؟", options=OPTIONS, raw_text=recovered_raw)
+    reasoning = ScriptedReasoning(answers=["Z", "K", "Q"])
+    reasoning.transcriptions = [recovered]
+    loop, _ = _loop(ocr, reasoning)
+    result = loop.solve_block(IMG)
+    assert result.unresolved is True
+    assert result.changed is True  # the text was still replaced by the transcription
 
 
 def test_parse_failure_exhausting_the_cap_returns_unresolved() -> None:

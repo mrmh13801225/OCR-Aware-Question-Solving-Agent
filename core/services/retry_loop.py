@@ -42,6 +42,7 @@ class RetryLoop:
             extracted = self.ocr.extract_text(image)
         original_ocr_text = extracted.text
         logger.info("original ocr: %s", original_ocr_text)
+        text_was_replaced = False
 
         try:
             block = parse(original_ocr_text)
@@ -57,7 +58,9 @@ class RetryLoop:
                     unresolved=True,
                     attempts=0,
                 )
-            block = recovered
+            # the transcription REPLACES the OCR text: the result's
+            # question_text is the model's reading, not the vendor's
+            block, text_was_replaced = recovered, True
 
         if self.injector is not None:
             block = self.injector.corrupt(block)
@@ -76,7 +79,9 @@ class RetryLoop:
 
             self._emit("VERIFY", attempt_index, attempt.raw_answer)
             if matches(attempt.raw_answer, block.options):
-                return self._done(attempt, block, len(attempts), original_ocr_text)
+                return self._done(
+                    attempt, block, len(attempts), original_ocr_text, text_was_replaced
+                )
 
             if attempt_index < self.retry_cap:
                 self._emit("CORRECT", attempt_index, attempt.raw_answer)
@@ -86,7 +91,7 @@ class RetryLoop:
                 )
                 block = corrected
 
-        return self._unresolved(attempts, block, original_ocr_text)
+        return self._unresolved(attempts, block, original_ocr_text, text_was_replaced)
 
     def _recover_unparseable_ocr(self, image: bytes) -> ParsedBlock | None:
         """The brief's re-read-the-image remedy, applied to total parse failure:
@@ -106,7 +111,12 @@ class RetryLoop:
         return None
 
     def _done(
-        self, attempt: SolveAttempt, block: ParsedBlock, count: int, original_ocr_text: str
+        self,
+        attempt: SolveAttempt,
+        block: ParsedBlock,
+        count: int,
+        original_ocr_text: str,
+        text_was_replaced: bool,
     ) -> BlockResult:
         answer = resolve_letter(self.answer_mapping, attempt.raw_answer, block.options)
         if answer is None:
@@ -115,21 +125,25 @@ class RetryLoop:
         return BlockResult(
             answer=answer,
             question_text=block.question_text,
-            changed=count > 1,
+            changed=count > 1 or text_was_replaced,
             original_ocr_text=original_ocr_text,
             unresolved=False,
             attempts=count,
         )
 
     def _unresolved(
-        self, attempts: list[SolveAttempt], block: ParsedBlock, original_ocr_text: str
+        self,
+        attempts: list[SolveAttempt],
+        block: ParsedBlock,
+        original_ocr_text: str,
+        text_was_replaced: bool,
     ) -> BlockResult:
         answer = pick_best(attempts, block.options)
         self._emit("UNRESOLVED", len(attempts) - 1, answer)
         return BlockResult(
             answer=answer,
             question_text=block.question_text,
-            changed=len(attempts) > 1,
+            changed=len(attempts) > 1 or text_was_replaced,
             original_ocr_text=original_ocr_text,
             unresolved=True,
             attempts=len(attempts),
