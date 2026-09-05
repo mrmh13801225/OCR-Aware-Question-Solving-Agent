@@ -29,7 +29,7 @@ from providers.reasoning.replies import parse_correction_reply
 # Reasoning models (GLM, DeepSeek-R1 class) spend hundreds of tokens in
 # reasoning_content before emitting content; a tight budget starves the
 # visible answer to empty. 4096 leaves room for reasoning plus the reply.
-MAX_TOKENS = 4096
+MAX_TOKENS = 64000
 # Measured on the live pass: a correction call against a reasoning gateway
 # took ~7 minutes server-side.
 TIMEOUT_SECONDS = 600.0
@@ -150,5 +150,12 @@ class OpenAICompatibleReasoningProvider(ReasoningProvider):
             raise ProviderResponseError(
                 f"malformed reply from vendor: {exc}", provider="openai_compatible"
             ) from exc
+        if not isinstance(reply, str) or not reply.strip():
+            # reasoning gateways emit content: null (or "") when the model
+            # spends its entire token budget thinking: a typed vendor failure,
+            # never a raw None flowing into reply parsing
+            raise ProviderResponseError(
+                f"empty reply from vendor: {reply!r}", provider="openai_compatible"
+            )
         logger.info("openai_compatible response: %s", reply)
         return reply

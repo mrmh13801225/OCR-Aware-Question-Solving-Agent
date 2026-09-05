@@ -126,7 +126,11 @@ class ClaudeReasoningProvider(ReasoningProvider):
             raise ProviderResponseError(
                 f"malformed reply from vendor: {response}", provider="claude"
             )
-        reply = "".join(b.text for b in response.content if b.type == "text")
+        reply = "".join(b.text or "" for b in response.content if b.type == "text")
+        if not reply.strip():
+            raise ProviderResponseError(
+                f"empty reply from vendor: {reply!r}", provider="claude"
+            )
         logger.info("claude response: %s", reply)
         return reply
 

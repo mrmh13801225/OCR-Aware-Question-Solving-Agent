@@ -115,6 +115,15 @@ def _system_text(adapter: str, body: dict) -> str:
     return str(body["messages"][0]["content"])
 
 
+def _reply_with_content(adapter: str, content) -> dict:
+    """A vendor reply whose visible content is `content` (either wire shape)."""
+    if adapter == "claude":
+        return {"content": [{"type": "text", "text": content}]}
+    return {
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}]
+    }
+
+
 def test_prompts_are_language_neutral() -> None:
     """The agent must not be locked to one language: no prompt names one —
     Persian support lives in the parser/matcher features, not the prompts."""
@@ -323,6 +332,17 @@ class TestReasoningContract:
     def test_malformed_json_maps_to_provider_response_error(self, adapter: str) -> None:
         provider, _ = _build(adapter, lambda request: httpx.Response(200, content=b"not-json{"))
         with pytest.raises(ProviderResponseError):
+            provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
+
+    def test_null_reply_content_maps_to_provider_response_error(self, adapter: str) -> None:
+        """Live-pass regression: reasoning gateways emit `content: null` when
+        the model spends its whole token budget thinking — a typed vendor
+        failure, never a raw None flowing into reply parsing."""
+        null_content = _reply_with_content(adapter, None)
+        provider, _ = _build(
+            adapter, lambda request: httpx.Response(200, json=null_content)
+        )
+        with pytest.raises(ProviderResponseError, match="empty reply"):
             provider.solve(IMAGE, BLOCK.question_text, OPTIONS)
 
     def test_timeout_maps_to_provider_timeout_error(self, adapter: str) -> None:
