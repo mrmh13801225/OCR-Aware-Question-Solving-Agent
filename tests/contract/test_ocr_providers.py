@@ -163,6 +163,70 @@ def test_datalab_poll_error_field_is_a_vendor_error() -> None:
         provider.extract_text(IMAGE)
 
 
+def test_datalab_reads_the_top_level_markdown_rendition() -> None:
+    """Marker contract (live-verified): the poll reply carries the complete
+    document as top-level `markdown` — the same rendition the vendor's own
+    dashboard shows. The legacy /api/v1/ocr endpoint is sunset and its
+    per-line text fragmented on math-heavy scans."""
+    from providers.ocr.datalab import DatalabOCRProvider
+
+    markdown_text = "کدام گزینه درست است؟\n\n1) تهران 2) مشهد 3) اصفهان 4) تبریز"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                200, json={"request_id": "req-1", "status": "processing", "success": True}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "request_id": "req-1",
+                "status": "complete",
+                "success": True,
+                "markdown": markdown_text,
+            },
+        )
+
+    transport = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = DatalabOCRProvider(
+        api_key="test-key", http_client=transport, clock=lambda: 0.0, sleep=lambda _s: None
+    )
+    extracted = provider.extract_text(IMAGE)
+    assert extracted.text == markdown_text
+
+
+def test_datalab_submits_to_marker_with_balanced_mode() -> None:
+    """The submit must target /api/v1/marker (the legacy /api/v1/ocr is
+    sunset, response headers Deprecation/Sunset 2026-08-31) with mode=balanced
+    — the quality tier the vendor's dashboard uses. The multipart body is read
+    inside the handler: outside it MockTransport has not materialized it."""
+
+    urls: list[str] = []
+    bodies: list[bytes] = []
+    base_handler = _fixture_handler("datalab", "extract_ok")
+
+    def capturing(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            urls.append(str(request.url))
+            bodies.append(request.read())
+        return base_handler(request)
+
+    provider = _build("datalab", capturing)
+    provider.extract_text(IMAGE)
+    assert "/api/v1/marker" in urls[0]
+    body = bodies[0].decode("utf-8", errors="replace")
+    assert 'name="mode"' in body and "balanced" in body
+    assert 'name="output_format"' in body and "markdown" in body
+
+
+def test_datalab_happy_path_returns_fixture_markdown() -> None:
+    """The fixture-based happy path: complete markdown in, text out."""
+    provider = _build("datalab", _fixture_handler("datalab", "extract_ok"))
+    extracted = provider.extract_text(IMAGE)
+    assert "کدام گزینه درست است؟" in extracted.text
+    assert "تهران" in extracted.text
+
+
 def test_datalab_poll_timeout_is_a_provider_timeout() -> None:
     from providers.ocr.datalab import DatalabOCRProvider
 

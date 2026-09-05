@@ -1,6 +1,6 @@
 {
-  "request_id": "req-fixture-2",
+  "request_id": "req-fixture-1",
   "status": "processing",
-  "success": false,
+  "success": true,
   "error": null
 }

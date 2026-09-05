@@ -27,7 +27,7 @@ def test_json_field_rejects_non_object() -> None:
 
 
 def test_trust_env_true_for_external_vendors() -> None:
-    assert trust_env_for("https://www.datalab.to/api/v1/ocr") is True
+    assert trust_env_for("https://www.datalab.to/api/v1/marker") is True
     assert trust_env_for("https://app.nanonets.com/api/v2/OCR/FullText") is True
     assert trust_env_for("https://api.openai.com/v1") is True
 

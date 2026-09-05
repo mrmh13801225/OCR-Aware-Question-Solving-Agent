@@ -55,8 +55,11 @@ gateway as the solver.
 
 **Why a local model over the hosted vendors:** the four sample questions are math-typeset,
 and that is exactly where the hosted engines broke down. Datalab mangled the
-math-typeset option bodies (and serves no `/olm` endpoint — the live pass had to adopt
-their real `POST /api/v1/ocr` submit-then-poll contract from their published OpenAPI spec).
+math-typeset option bodies — and its adapter had to be migrated mid-project when the
+vendor sunset the legacy `POST /api/v1/ocr` endpoint (Deprecation/Sunset headers,
+2026-08-31) in favor of the supported `POST /api/v1/marker` pipeline with
+`mode=balanced` (verified live: the sunset endpoint's per-line text fragments on the
+same scans the marker endpoint renders completely).
 dots.ocr recovered the same regions as clean LaTeX (`f(x) = mx^2 - nx - k`,
 `\log_{\frac{1}{2}} x`), which both the parser and the vision solver can work with. On
 plain prose Persian the hosted engines were fine; on this deliverable's actual input the

@@ -1,12 +1,7 @@
 {
-  "request_id": "req-fixture-2",
+  "request_id": "req-fixture-1",
   "status": "complete",
   "success": true,
   "error": null,
-  "pages": [
-    {
-      "page": 1,
-      "text_lines": []
-    }
-  ]
+  "markdown": ""
 }

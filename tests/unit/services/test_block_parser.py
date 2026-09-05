@@ -138,3 +138,78 @@ def test_option_positions_map_by_appearance_order() -> None:
         Option("C", "سوم"),
         Option("D", "چهارم"),
     ]
+
+
+# --- inline option rows: OCR engines sometimes emit every option on one line ---
+
+
+DATALAB_BALANCE_MODE = (
+    "۱۱۳- تابع  $f(x) = mx^2 - nx - k$  در هر بازه، هم صعودی و هم نزولی است. "
+    "اگر مجموعه زیر، تابع باشد، مقدار\n\n"
+    "$f(\\sqrt{5})$  کدام است؟  $\\{(m, n-1), (0, k), (n-1, m^2 + 2m - 1), (2k+2, 2k+1)\\}$\n\n"
+    "(۱) ۱ (۲)  $-\\sqrt{5}$  (۳) ۱ (۴)  $\\sqrt{5}$"
+)
+
+
+def test_parses_all_options_on_one_physical_line() -> None:
+    block = parse(DATALAB_BALANCE_MODE)
+    assert [o.label for o in block.options] == ["A", "B", "C", "D"]
+    assert [o.text for o in block.options] == ["۱", "$-\\sqrt{5}$", "۱", "$\\sqrt{5}$"]
+    assert "کدام است؟" in block.question_text
+    assert "(m, n-1)" in block.question_text  # the set stays in the question, unsplit
+    assert block.raw_text == DATALAB_BALANCE_MODE
+
+
+# The exact /api/v1/marker output for the same scan (live-verified): the
+# options arrive as a markdown list, one per line, bullet + paren marker.
+DATALAB_BALANCE_MODE_MARKER_LIVE = (
+    "۱۱۳- تابع  $f(x) = mx^2 - nx - k$  در هر بازه، هم صعودی و هم نزولی است. "
+    "اگر مجموعه زیر، تابع باشد، مقدار\n\n"
+    "$f(\\sqrt{5})$  کدام است؟  $\\{(m, n-1), (0, k), (n-1, m^2 + 2m - 1), (2k+2, 2k+1)\\}$\n\n"
+    "- (۱) ۱\n"
+    "- (۲)  $-\\sqrt{5}$\n"
+    "- (۳) ۱\n"
+    "- (۴)  $\\sqrt{5}$"
+)
+
+
+def test_parses_the_live_marker_bullet_form() -> None:
+    block = parse(DATALAB_BALANCE_MODE_MARKER_LIVE)
+    assert [o.label for o in block.options] == ["A", "B", "C", "D"]
+    assert [o.text for o in block.options] == ["۱", "$-\\sqrt{5}$", "۱", "$\\sqrt{5}$"]
+    assert "کدام است؟" in block.question_text
+    assert "(n-1" in block.question_text  # the math set stays in the question
+    assert block.raw_text == DATALAB_BALANCE_MODE_MARKER_LIVE
+
+
+def test_parses_latin_inline_option_row() -> None:
+    block = parse("Which is it?\n(1) alpha (2) beta (3) gamma (4) delta")
+    assert _labels(block) == ["A", "B", "C", "D"]
+    assert _texts(block) == ["alpha", "beta", "gamma", "delta"]
+    assert block.question_text == "Which is it?"
+
+
+def test_parses_fully_inline_single_line_block() -> None:
+    block = parse("question? (1) x (2) y (3) z (4) w")
+    assert block.question_text == "question?"
+    assert _texts(block) == ["x", "y", "z", "w"]
+
+
+def test_question_fragments_are_never_split_when_the_block_parses_line_wise() -> None:
+    raw = "مقدار $f(2)$ چقدر است؟\n1) x\n2) y"
+    block = parse(raw)
+    assert block.question_text == "مقدار $f(2)$ چقدر است؟"
+    assert _texts(block) == ["x", "y"]
+
+
+def test_text_without_any_option_marker_still_raises() -> None:
+    with pytest.raises(ParseError) as err:
+        parse("فقط یک سؤال بدون گزینه با (1) چیزی شبیه مارکر ولی بدون بدنه")
+    assert "could not find a question with at least two options" in str(err.value)
+
+
+def test_inline_block_round_trips_through_serialize() -> None:
+    block = parse(DATALAB_BALANCE_MODE)
+    rendered = parse(serialize(block))
+    assert [o.text for o in rendered.options] == [o.text for o in block.options]
+    assert [o.label for o in rendered.options] == [o.label for o in block.options]

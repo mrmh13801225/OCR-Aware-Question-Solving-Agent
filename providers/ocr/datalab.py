@@ -1,9 +1,16 @@
-"""Datalab OCR adapter: submit-then-poll over the datalab.to OCR API.
+"""Datalab OCR adapter: submit-then-poll over datalab.to's marker API.
 
 Contract per datalab.to's published OpenAPI spec (https://www.datalab.to/openapi.json):
-POST multipart/form-data to /api/v1/ocr with a `file` field and an X-Api-Key
-header; the reply carries a request_id; poll GET /api/v1/ocr/{request_id}
-?poll=true until status == "complete", then join the per-page text fields.
+POST multipart/form-data to /api/v1/marker with a `file` field and an
+X-Api-Key header; the reply carries a request_id; poll GET
+/api/v1/marker/{request_id}?poll=true until status == "complete", then read
+the top-level `markdown` rendition.
+
+The legacy /api/v1/ocr endpoint is deprecated (response headers: Deprecation,
+Sunset 2026-08-31) and serves a degraded pipeline: on math-heavy scans its
+per-line text fragments and it carries no markdown field at all. Marker is
+the supported endpoint — `mode` governs quality ('balanced' matches the
+vendor's own dashboard) and math is recognized automatically.
 """
 
 import json
@@ -17,7 +24,10 @@ from core.domain.ports import OCRProvider, OCRText
 from providers.http import call_vendor, json_field, raise_for_status, trust_env_for
 from providers.images import upload_file_tuple
 
-EXTRACT_URL = "https://www.datalab.to/api/v1/ocr"
+EXTRACT_URL = "https://www.datalab.to/api/v1/marker"
+# balanced: the dashboard's default quality tier — math-heavy exam scans need
+# it; 'fast' fragments the same content the legacy endpoint did.
+MARKER_PARAMS = {"mode": "balanced", "output_format": "markdown"}
 TIMEOUT_SECONDS = 120.0
 POLL_INTERVAL_SECONDS = 2.0
 POLL_LIMIT_SECONDS = 90.0
@@ -26,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class DatalabOCRProvider(OCRProvider):
-    """OCRProvider port implementation over the datalab.to OCR API.
+    """OCRProvider port implementation over datalab.to's marker API.
 
     The HTTP client is injected so contract tests replay fixtures with no
     network; clock and sleep are injectable so the poll loop runs instantly
@@ -62,6 +72,7 @@ class DatalabOCRProvider(OCRProvider):
             lambda: self._client.post(
                 EXTRACT_URL,
                 files={"file": upload_file_tuple(image)},
+                data=MARKER_PARAMS,
             ),
         )
         raise_for_status(response, "datalab")
@@ -95,23 +106,13 @@ class DatalabOCRProvider(OCRProvider):
 
 
 def _extracted_text(data: dict) -> str:
-    # Real payload shape (live-verified): pages[].text_lines[].text — the
-    # OpenAPI schema types pages as open objects, so the nesting is
-    # authoritative from the wire, not the spec. top-level `markdown` kept
-    # as a fallback for the documented convenience shape.
-    lines: list[str] = []
-    for page in data.get("pages") or []:
-        for line in page.get("text_lines") or []:
-            lines.append(str(line.get("text") or ""))
-        if page.get("markdown"):
-            lines.append(str(page["markdown"]))
-    if not lines:
-        lines.append(str(data.get("markdown") or ""))
-    text = "\n".join(lines)
-    if not text.strip():
-        # "complete" with no text is a vendor-side failure, not an empty scan:
-        # surfacing it as an empty string would explode later as a confusing
-        # ParseError far from the cause.
+    # Marker payload shape (live-verified): the top-level `markdown` field is
+    # the complete document rendition; no per-page pages[] on single-image
+    # submissions. Empty markdown on a "complete" reply is a vendor failure,
+    # not an empty scan — surfacing "" would explode later as a confusing
+    # ParseError far from the cause.
+    text = str(data.get("markdown") or "").strip()
+    if not text:
         raise ProviderResponseError(
             f"vendor reported complete but returned no text: {json.dumps(data)[:300]}",
             provider="datalab",
